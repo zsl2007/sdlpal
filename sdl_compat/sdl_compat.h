@@ -168,7 +168,11 @@ extern int SDL_GL_BindTexture(SDL_Texture* texture, float* texw, float* texh);
 #undef SDL_LoadBMP_RW
 #define SDL_LoadBMP_RW SDL_LoadBMP_IO
 #undef SDL_RWread
+#ifdef __cplusplus
+extern "C" size_t SDL_RWread(SDL_IOStream* stream, void* ptr, size_t size, size_t nitems);
+#else
 extern size_t SDL_RWread(SDL_IOStream* stream, void* ptr, size_t size, size_t nitems);
+#endif
 #undef SDL_FreeRW
 #define SDL_FreeRW(x)
 
