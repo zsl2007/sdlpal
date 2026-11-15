@@ -282,3 +282,6 @@ emscripten/*.cpp
 
 # macOS Trashes
 *.DS_Store
+# Engine binary backups (never commit binaries)
+unix/*.bak
+unix/*.bak.*

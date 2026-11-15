@@ -1608,6 +1608,10 @@ PAL_BridgeBootSlot(
    VOID
 )
 {
+   // USER 11:11 定稿：从新游戏开始玩，存档4 只是 agent 的存档位，不是
+   // 起点。GUI 常驻时不设 boot slot，游戏从标题/新局开始，由 agent
+   // 按 enter 走开场菜单进入新游戏；存档/读档走引擎 PAL_SaveGame /
+   // PAL_LoadGame（游戏流程），不后台直接写文件。
    return g_fEnabled ? g_iBootSlot : 0;
 }
 
