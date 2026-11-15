@@ -173,6 +173,8 @@ static size_t         g_nInLen = 0;
 // Forwarded: _bridge_parse() handles the "dump" command but the
 // implementation sits with the rest of the dump code below.
 static void _bridge_dump(VOID);
+// Lightweight live-object refresh (same objs framing as the full dump).
+static void _bridge_dump_objs_only(VOID);
 
 static int
 _bridge_send(
@@ -688,7 +690,17 @@ _bridge_parse(
 
    if (strstr(psz, "\"dump\"") != NULL)
    {
-      _bridge_dump();
+      // {"dump":"objs"} = lightweight refresh: only the live event-object
+      // array (positions/state/trigger/auto script), which is the ONLY part
+      // that剧情 rewrite mutates. The BFS must not keep using a stale
+      // trigger script from the attach-time full dump for OTHER scenes while
+      // the current scene uses fresh state.objs — that static/realtime split
+      // made one (scene,obj) look like two different goals. Full dump (header
+      // + scenes + objs + script + maps) stays the default.
+      if (strstr(psz, "\"objs\"") != NULL)
+         _bridge_dump_objs_only();
+      else
+         _bridge_dump();
       return;
    }
 
@@ -946,6 +958,78 @@ _bridge_dump_flush(
    }
 }
 
+//
+// Emit the LIVE event-object array as {"objs":[...]} NDJSON chunks.
+// These fields come straight from gpGlobals->g.lprgEventObject (the same
+// array the engine mutates on 0x0025 rewrite_trigger / 0x0049 set_state),
+// so they are the current truth for EVERY scene, not an attach-time snapshot.
+//
+static void
+_bridge_dump_objs(
+   VOID
+)
+{
+   int  i, j, chunk = 0;
+   for (i = 0; i < gpGlobals->g.nEventObject; )
+   {
+      char  *p;
+      size_t room;
+      int    w;
+
+      if (g_nDumpLen > BRIDGE_BUFSZ / 2)
+         _bridge_dump_flush();
+      p = g_szOut + g_nDumpLen;
+      room = BRIDGE_BUFSZ - g_nDumpLen - 64;
+
+      w = snprintf(p, room, "{\"objs\":[");
+      for (j = 0; j < 256 && i < gpGlobals->g.nEventObject; j++, i++)
+      {
+         LPEVENTOBJECT o = &gpGlobals->g.lprgEventObject[i];
+         char          item[96];
+         int           m;
+
+         m = snprintf(item, sizeof(item), "%s[%d,%d,%d,%d,%d,%d,%d]",
+                      j ? "," : "",
+                      (int)o->x, (int)o->y, (int)o->sState,
+                      (int)o->wTriggerMode, (int)o->wTriggerScript,
+                      (int)o->wAutoScript, (int)o->wSpriteNum);
+         if (w + m + 2 > (int)room)
+            break;
+         memcpy(p + w, item, m);
+         w += m;
+      }
+      w += snprintf(p + w, room - w, "]}");
+      g_nDumpLen += w;
+      g_szOut[g_nDumpLen++] = '\n';
+      if (g_nDumpLen > BRIDGE_BUFSZ / 2)
+      {
+         g_szOut[g_nDumpLen] = '\0';
+         _bridge_send(g_szOut);
+         g_nDumpLen = 0;
+      }
+      chunk++;
+   }
+   if (chunk == 0)
+      _bridge_dump_line("{\"objs\":[]}");
+}
+
+//
+// Lightweight dump: header + live objs + eod only. No scenes/script/maps
+// resend. The agent calls this every round to refresh its BFS object layer
+// so all scenes are judged from ONE fresh snapshot (no static/realtime split).
+//
+static void
+_bridge_dump_objs_only(
+   VOID
+)
+{
+   g_nDumpLen = 0;
+   _bridge_dump_line("{\"dump\":\"objs\"}");
+   _bridge_dump_objs();
+   _bridge_dump_line("{\"eod\":1}");
+   _bridge_dump_flush();
+}
+
 static void
 _bridge_dump(
    VOID
@@ -1001,53 +1085,9 @@ _bridge_dump(
    }
 
    //
-   // Event objects. Only the fields the planner needs -- positions, state,
-   // trigger/auto scripts, sprite and trigger mode.
+   // Event objects (live struct snapshot). Shared with the lightweight refresh.
    //
-   {
-      int chunk = 0;
-      for (i = 0; i < gpGlobals->g.nEventObject; )
-      {
-         char *p;
-         size_t room;
-         int    w;
-
-         if (g_nDumpLen > BRIDGE_BUFSZ / 2)
-            _bridge_dump_flush();
-         p = g_szOut + g_nDumpLen;
-         room = BRIDGE_BUFSZ - g_nDumpLen - 64;
-
-         w = snprintf(p, room, "{\"objs\":[");
-         for (j = 0; j < 256 && i < gpGlobals->g.nEventObject; j++, i++)
-         {
-            LPEVENTOBJECT o = &gpGlobals->g.lprgEventObject[i];
-            char          item[96];
-            int           m;
-
-            m = snprintf(item, sizeof(item), "%s[%d,%d,%d,%d,%d,%d,%d]",
-                         j ? "," : "",
-                         (int)o->x, (int)o->y, (int)o->sState,
-                         (int)o->wTriggerMode, (int)o->wTriggerScript,
-                         (int)o->wAutoScript, (int)o->wSpriteNum);
-            if (w + m + 2 > (int)room)
-               break;
-            memcpy(p + w, item, m);
-            w += m;
-         }
-         w += snprintf(p + w, room - w, "]}");
-         g_nDumpLen += w;
-         g_szOut[g_nDumpLen++] = '\n';
-         if (g_nDumpLen > BRIDGE_BUFSZ / 2)
-         {
-            g_szOut[g_nDumpLen] = '\0';
-            _bridge_send(g_szOut);
-            g_nDumpLen = 0;
-         }
-         chunk++;
-      }
-      if (chunk == 0)
-         _bridge_dump_line("{\"objs\":[]}");
-   }
+   _bridge_dump_objs();
 
    //
    // Script table, verbatim: 4 x uint16 per entry. Interpreting opcodes is the
