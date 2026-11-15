@@ -45,6 +45,7 @@ extern WORD PAL_MagicMenuSpell(int i);
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <fcntl.h>
 #define PAL_SOCKET        int
 #define PAL_INVALID_SOCK  (-1)
 #define PAL_CLOSE(s)      close(s)
@@ -74,6 +75,12 @@ static INT            g_fCinematics = 0;
 static INT            g_iBootSlot = 0;
 static INT            g_nFrameMs = 0;
 static PAL_SOCKET     g_sock = PAL_INVALID_SOCK;
+/* USER 10:11 "游戏启动后监听 socket，agent 去连游戏，任意状态可接管":
+   the GUI owns a LISTEN socket and keeps running standalone; an agent may
+   attach at any time, take over the CURRENT in-memory state, detach, and be
+   replaced by a fresh agent without ever restarting the game. */
+static INT            g_fListen = 0;
+static PAL_SOCKET     g_listenSock = PAL_INVALID_SOCK;
 static INT            g_nFrame = 0;
 static INT            g_nSeed = 1;
 
@@ -1312,6 +1319,138 @@ PAL_HumanLogFrame(
    g_hLastMsg = msg;
 }
 
+//
+// USER 10:11: the GUI owns the socket and an agent CONNECTS TO the game.
+// The hello/ack handshake used to be inline in PAL_BridgeInit (once, at
+// startup). It is now reusable so every fresh agent attachment re-handshakes
+// against the CURRENT in-memory state, with no game restart.
+//
+static INT
+_bridge_handshake(
+   INT fExitOnFail
+)
+{
+   char szHello[4096];
+   char *pszLine;
+   int seed, fast;
+
+   snprintf(szHello, sizeof(szHello),
+            "{\"t\":\"hello\",\"ver\":%d,\"win95\":%d,\"files\":[",
+            BRIDGE_VERSION, gConfig.fIsWIN95 ? 1 : 0);
+   {
+      static const char *rgsz[] = {"sss.mkf", "map.mkf", "gop.mkf",
+                                   "fbp.mkf", "m.msg",   "word.dat",
+                                   "ball.mkf", "data.mkf"};
+      int i;
+      for (i = 0; i < (int)(sizeof(rgsz) / sizeof(rgsz[0])); i++)
+      {
+         FILE *fp = fopen(rgsz[i], "rb");
+         long n = -1;
+         if (fp != NULL)
+         {
+            fseek(fp, 0, SEEK_END);
+            n = ftell(fp);
+            fclose(fp);
+         }
+         snprintf(szHello + strlen(szHello),
+                  sizeof(szHello) - strlen(szHello),
+                  "%s{\"n\":\"%s\",\"s\":%ld}", i ? "," : "", rgsz[i], n);
+      }
+   }
+   strncat(szHello, "]}\n", sizeof(szHello) - strlen(szHello) - 1);
+
+   if (!_bridge_send(szHello))
+      return 0;
+
+   pszLine = _bridge_recv_line();
+   if (pszLine == NULL)
+   {
+      if (fExitOnFail)
+         exit(0);              // legacy connect mode: agent died at hello
+      return 0;                // listen mode: just drop this attachment
+   }
+   seed = _json_int(pszLine, "seed", 1);
+   fast = _json_int(pszLine, "fast", g_fFast);
+   g_fFast = fast ? 1 : 0;
+   if (seed > 0)
+      PAL_BridgeSetSeed(seed);
+   return 1;
+}
+
+//
+// Listen mode: bind a socket and let the game run standalone (g_fEnabled=0).
+// Agents attach later via _bridge_try_accept(). Non-blocking so a GUI with
+// no agent attached still animates and accepts human keyboard input.
+//
+static INT
+_bridge_start_listen(
+   int port
+)
+{
+   struct sockaddr_in addr;
+   int reuse = 1;
+
+   g_listenSock = socket(AF_INET, SOCK_STREAM, 0);
+   if (g_listenSock == PAL_INVALID_SOCK)
+      return 0;
+   setsockopt(g_listenSock, SOL_SOCKET, SO_REUSEADDR,
+              (const char *)&reuse, sizeof(reuse));
+   memset(&addr, 0, sizeof(addr));
+   addr.sin_family = AF_INET;
+   addr.sin_port = htons((unsigned short)port);
+   addr.sin_addr.s_addr = htonl(INADDR_ANY);
+   if (bind(g_listenSock, (struct sockaddr *)&addr, sizeof(addr)) != 0 ||
+       listen(g_listenSock, 1) != 0)
+   {
+      PAL_CLOSE(g_listenSock);
+      g_listenSock = PAL_INVALID_SOCK;
+      return 0;
+   }
+#if !defined(_WIN32)
+   fcntl(g_listenSock, F_SETFL,
+         fcntl(g_listenSock, F_GETFL, 0) | O_NONBLOCK);
+#endif
+   g_fListen = 1;
+   g_fEnabled = 0;            // standalone until an agent attaches
+   fprintf(stderr, "BRIDGE listen port=%d (GUI runs standalone; "
+                   "agent may attach at any state)\n", port);
+   return 1;
+}
+
+//
+// Called every pump while no agent is attached. A successful accept takes
+// over the CURRENT state: re-handshake, reset the input queue, and start
+// the strict one-report / one-batch alternation from wherever the game is.
+//
+static VOID
+_bridge_try_accept(
+   VOID
+)
+{
+   PAL_SOCKET c = accept(g_listenSock, NULL, NULL);
+   if (c == PAL_INVALID_SOCK)
+      return;                 // no agent yet: standalone frame
+#if !defined(_WIN32)
+   fcntl(c, F_SETFL, fcntl(c, F_GETFL, 0) & ~O_NONBLOCK);
+#endif
+   g_sock = c;
+   g_nInLen = 0;
+   g_nActions = 0;
+   g_iAction = 0;
+   g_fQuitRequested = 0;
+   g_nCleared = 0;
+   g_nServed = 0;
+   g_nWorldFrames = 0;
+   if (!_bridge_handshake(0))
+   {
+      PAL_CLOSE(g_sock);
+      g_sock = PAL_INVALID_SOCK;
+      return;
+   }
+   g_fEnabled = 1;
+   fprintf(stderr, "BRIDGE agent attached; taking over current state\n");
+}
+
 VOID
 PAL_BridgeInit(
    VOID
@@ -1321,7 +1460,6 @@ PAL_BridgeInit(
    struct sockaddr_in addr;
    int port = 4567;
    const char *pszHost = "127.0.0.1";
-   char szHello[4096];
 
    // The human recorder is independent of the agent bridge: normal GUI
    // play has PAL_AGENT unset, so it must start here before that check.
@@ -1385,6 +1523,18 @@ PAL_BridgeInit(
       g_fFast, g_fNoRender ? "off" : "on", g_fCinematics, g_fAudio,
       g_nFrameMs, g_iBootSlot);
 
+   // USER 10:11 "游戏启动后监听 socket，agent 去连游戏，任意状态可接管":
+   // PAL_AGENT_LISTEN=1 makes the GUI own the socket. It runs standalone
+   // (render=on, human-playable) until an agent connects and takes over
+   // whatever state the game is currently in. Default 0 keeps the legacy
+   // connect-mode used by headless self-iteration, byte-for-byte unchanged.
+   psz = getenv("PAL_AGENT_LISTEN");
+   if (psz != NULL && atoi(psz) == 1)
+   {
+      _bridge_start_listen(port);
+      return;
+   }
+
    g_sock = socket(AF_INET, SOCK_STREAM, 0);
    if (g_sock == PAL_INVALID_SOCK)
       return;
@@ -1413,54 +1563,7 @@ PAL_BridgeInit(
    }
 
    g_fEnabled = 1;
-
-   //
-   // Version + data identity. The route library is bound to these numbers,
-   // so a data swap can never silently load a stale route library.
-   //
-   snprintf(szHello, sizeof(szHello),
-            "{\"t\":\"hello\",\"ver\":%d,\"win95\":%d,\"files\":[",
-            BRIDGE_VERSION, gConfig.fIsWIN95 ? 1 : 0);
-   {
-      static const char *rgsz[] = {"sss.mkf", "map.mkf", "gop.mkf",
-                                   "fbp.mkf", "m.msg",   "word.dat",
-                                   "ball.mkf", "data.mkf"};
-      int i;
-      for (i = 0; i < (int)(sizeof(rgsz) / sizeof(rgsz[0])); i++)
-      {
-         FILE *fp = fopen(rgsz[i], "rb");
-         long n = -1;
-         if (fp != NULL)
-         {
-            fseek(fp, 0, SEEK_END);
-            n = ftell(fp);
-            fclose(fp);
-         }
-         snprintf(szHello + strlen(szHello),
-                  sizeof(szHello) - strlen(szHello),
-                  "%s{\"n\":\"%s\",\"s\":%ld}", i ? "," : "", rgsz[i], n);
-      }
-   }
-   strncat(szHello, "]}\n", sizeof(szHello) - strlen(szHello) - 1);
-
-   _bridge_send(szHello);
-
-   //
-   // The agent answers with the seed (and may force real-time mode).
-   //
-   char *pszLine = _bridge_recv_line();
-   if (pszLine == NULL)
-   {
-      g_fEnabled = 0;           // agent died before answering the hello
-      exit(0);
-   }
-   {
-      int seed = _json_int(pszLine, "seed", 1);
-      int fast = _json_int(pszLine, "fast", g_fFast);
-      g_fFast = fast ? 1 : 0;
-      if (seed > 0)
-         PAL_BridgeSetSeed(seed);
-   }
+   _bridge_handshake(1);
 }
 INT
 PAL_BridgeEnabled(
@@ -1620,6 +1723,17 @@ PAL_BridgePump(
    // for the human play log before the agent-only early return.
    PAL_HumanLogFrame();
 
+   // LISTEN mode, no agent attached yet: the game runs standalone (GUI on,
+   // human keyboard works). Poll for a new agent once per frame; a fresh
+   // connection re-handshakes and takes over the CURRENT state, so an agent
+   // can be attached at ANY point of the game, repeatedly.
+   if (g_fListen && !g_fEnabled)
+   {
+      _bridge_try_accept();
+      if (!g_fEnabled)
+         return;
+   }
+
    if (!g_fEnabled)
       return;
 
@@ -1644,6 +1758,23 @@ PAL_BridgePump(
 
    if (g_fQuitRequested)
    {
+      // LISTEN mode: "quit" means the agent is detaching, NOT that the game
+      // should shut down. Drop the connection, keep the world state, go back
+      // to accept() so another agent can reattach.
+      if (g_fListen)
+      {
+         g_fEnabled = 0;
+         g_fQuitRequested = 0;
+         PAL_CLOSE(g_sock);
+         g_sock = PAL_INVALID_SOCK;
+         g_nInLen = 0;
+         g_nActions = 0;
+         g_iAction = 0;
+         _bridge_setkey(kKeyNone);
+         fprintf(stderr, "BRIDGE agent quit (detached); "
+                         "game continues, waiting for next agent\n");
+         return;
+      }
       _bridge_setkey(kKeyMenu);
       return;
    }
@@ -1662,10 +1793,20 @@ PAL_BridgePump(
 
    if (!_bridge_send(g_szOut))
    {
-      // agent gone: stop interfering and let the game run normally
+      // agent gone: stop interfering and let the game run normally.
+      // LISTEN mode: next pump returns to accept() polling, state kept.
       g_fEnabled = 0;
       PAL_CLOSE(g_sock);
       g_sock = PAL_INVALID_SOCK;
+      g_nInLen = 0;
+      g_nActions = 0;
+      g_iAction = 0;
+      _bridge_setkey(kKeyNone);
+      if (g_fListen)
+      {
+         fprintf(stderr, "BRIDGE agent detached (send failed); "
+                         "waiting for next agent\n");
+      }
       return;
    }
 
@@ -1673,14 +1814,26 @@ PAL_BridgePump(
    if (pszLine == NULL)
    {
       //
-      // The agent is gone (EOF or a dead socket). An engine that carries
-      // on here used to spin uncontrolled forever -- three of them were
-      // found running days after their agent died. The saves are already
-      // on disk (PAL_SaveGame is synchronous), so just leave.
+      // The agent is gone (EOF or a dead socket).
+      // LISTEN mode: this is a normal DETACH. Keep the game state in memory
+      // and go back to polling accept(), so the next agent can take over
+      // from exactly this point. USER 10:11 "任意状态可接管".
+      // Legacy connect mode: an engine that carried on here used to spin
+      // uncontrolled forever, so keep the original exit(0).
       //
       g_fEnabled = 0;
       PAL_CLOSE(g_sock);
       g_sock = PAL_INVALID_SOCK;
+      g_nInLen = 0;
+      g_nActions = 0;
+      g_iAction = 0;
+      _bridge_setkey(kKeyNone);
+      if (g_fListen)
+      {
+         fprintf(stderr, "BRIDGE agent detached; game continues, "
+                         "state kept, waiting for next agent\n");
+         return;
+      }
       exit(0);
    }
 

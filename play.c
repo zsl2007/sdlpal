@@ -441,8 +441,24 @@ PAL_Search(
    int                x, y, xOffset, yOffset, dx, dy, dh, ex, ey, eh, i, k, l;
    LPEVENTOBJECT      p;
    TRIGGERRANGE       rgRange;
+   static int         fDiag = -1;
+
+   if (fDiag < 0)
+   {
+      const char *pszDiag = getenv("PAL_DIAG_SEARCH");
+      fDiag = (pszDiag != NULL && atoi(pszDiag) == 1) ? 1 : 0;
+   }
 
    rgRange = PAL_GetSearchTriggerRange();
+
+   if (fDiag)
+   {
+      WORD wx = PAL_X(gpGlobals->viewport) + PAL_X(gpGlobals->partyoffset);
+      WORD wy = PAL_Y(gpGlobals->viewport) + PAL_Y(gpGlobals->partyoffset);
+      fprintf(stderr, "DIAG-SEARCH call dir=%d party=(%d,%d) firstprobe=(%d,%d)\n",
+              (int)gpGlobals->wPartyDirection, (int)wx, (int)wy,
+              (int)PAL_X(rgRange.rgPos[0]), (int)PAL_Y(rgRange.rgPos[0]));
+   }
 
    for (i = 0; i < 13; i++)
    {
@@ -467,6 +483,15 @@ PAL_Search(
          if (p->sState <= 0 || p->wTriggerMode >= kTriggerTouchNear ||
             p->wTriggerMode * 6 - 4 <= i || dx != ex || dy != ey || dh != eh)
          {
+            if (fDiag && p->sState > 0 && p->wTriggerMode < kTriggerTouchNear)
+            {
+               fprintf(stderr,
+                  "DIAG-SEARCH skip i=%d obj=%d state=%d mode=%d "
+                  "ptile=(%d,%d,%d) otile=(%d,%d,%d) limit=%d\n",
+                  i, k + 1, (int)p->sState, (int)p->wTriggerMode,
+                  dx, dy, dh, ex, ey, eh,
+                  (int)p->wTriggerMode * 6 - 4);
+            }
             continue;
          }
 
@@ -496,6 +521,11 @@ PAL_Search(
          //
          // Execute the script
          //
+         if (fDiag)
+         {
+            fprintf(stderr, "DIAG-SEARCH HIT i=%d obj=%d mode=%d script=%d\n",
+                    i, k + 1, (int)p->wTriggerMode, (int)p->wTriggerScript);
+         }
          p->wTriggerScript = PAL_RunTriggerScript(p->wTriggerScript, k + 1);
 
          //
