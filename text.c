@@ -1438,6 +1438,17 @@ PAL_DialogWaitForKeyWithMaximumSeconds(
       {
          break;
       }
+
+      // USER「战败后按键无效」: a {"load":N} recovery request must be
+      // able to release this synchronous wait even when the game is
+      // stuck in a plot script with all party members dead. Otherwise
+      // PAL_LoadResources() in the main loop never runs and the load
+      // flags set by PAL_ReloadInNextTick() are never consumed.
+      // One-shot, so ordinary dialogs are unaffected.
+      if (PAL_BridgeTakeRecovery())
+      {
+         break;
+      }
    }
 
    if (g_TextLib.bDialogPosition != kDialogCenterWindow &&

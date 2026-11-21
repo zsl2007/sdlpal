@@ -288,6 +288,17 @@ PAL_C_LINKAGE_BEGIN
 INT PAL_BridgeFast(VOID);
 INT PAL_BridgeCinematics(VOID);
 INT PAL_BridgeBootSlot(VOID);
+
+// USER「战败后读档窗口按什么键都无效」: when the agent sends
+// {"load":N} the engine is often stuck INSIDE a synchronous plot
+// script (g_nScriptDepth > 0) waiting for a key. The main game
+// loop -- which is the only place PAL_LoadResources() consumes the
+// reload flags -- never runs again, so the load can never take
+// effect. Waiting loops consult this one-shot flag and break out,
+// letting the script return and the main loop do the reload.
+// "Take" clears it, so exactly one waiting loop is released and
+// normal dialogs are untouched.
+INT PAL_BridgeTakeRecovery(VOID);
 PAL_C_LINKAGE_END
 
 //

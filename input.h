@@ -67,6 +67,16 @@ PAL_ClearKeyState(
    VOID
 );
 
+//
+// Reset keyboard debounce timestamps at the agent attach/detach clock
+// boundary. Without this, physical keypresses are swallowed forever
+// after an agent detaches (virtual clock -> real clock jumps back).
+//
+VOID
+PAL_ResetKeyTimings(
+   VOID
+);
+
 VOID
 PAL_InitInput(
    VOID

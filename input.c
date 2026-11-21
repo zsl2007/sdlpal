@@ -288,14 +288,27 @@ PAL_KeyUp(
    }
 }
 
-static VOID
-PAL_UpdateKeyboardState(
+// USER「agent 退出后按键无效」: the debounce timestamps are written
+// with SDL_GetTicks(), which common.h maps to PAL_BridgeTicks(). While
+// an agent is attached that is the VIRTUAL clock (advanced 16 ms per
+// pump, far ahead of wall time); after detach PAL_BridgeTicks() returns
+// the REAL clock, which is suddenly SMALLER. Every
+// "dwCurrentTime > rgdwKeyLastTime[i]" then fails forever and no
+// physical keypress is ever registered. Keep the array at file scope
+// so the bridge can reset it at the attach/detach boundary.
+static DWORD rgdwKeyLastTime[sizeof(g_KeyMap) / sizeof(g_KeyMap[0])] = {0};
+
+VOID
+PAL_ResetKeyTimings(
    VOID
 )
 /*++
   Purpose:
 
-    Poll & update keyboard state.
+    Reset keyboard debounce timestamps when the clock domain changes
+    (agent attach / detach). Must be called with the new clock already
+    installed so subsequent PAL_UpdateKeyboardState() compares like
+    with like.
 
   Parameters:
 
@@ -307,7 +320,28 @@ PAL_UpdateKeyboardState(
 
 --*/
 {
-   static DWORD   rgdwKeyLastTime[sizeof(g_KeyMap) / sizeof(g_KeyMap[0])] = {0};
+   memset(rgdwKeyLastTime, 0, sizeof(rgdwKeyLastTime));
+}
+
+static VOID
+PAL_UpdateKeyboardState(
+   VOID
+)
+/*++
+  Purpose:
+
+    Poll & update keyboard state.
+
+    Parameters:
+
+    None.
+
+    Return value:
+
+    None.
+
+--*/
+{
    LPCBYTE        keyState = (LPCBYTE)SDL_GetKeyboardState(NULL);
    int            i;
    DWORD          dwCurrentTime = SDL_GetTicks();

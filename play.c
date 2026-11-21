@@ -664,6 +664,14 @@ PAL_WaitForKeyInternal(
       {
          break;
       }
+
+      // See text.c: a recovery {"load":N} must be able to release
+      // this synchronous wait so the main loop can consume the
+      // reload flags (PAL_LoadResources). One-shot flag.
+      if (PAL_BridgeTakeRecovery())
+      {
+         break;
+      }
    }
 }
 

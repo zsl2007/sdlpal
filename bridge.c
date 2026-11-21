@@ -128,6 +128,38 @@ static INT            g_nSaveCount = 0;
 // Maintained by script.c around every PAL_RunTriggerScript() call.
 extern INT            g_nScriptDepth;
 
+// One-shot "a recovery load was requested while a synchronous script
+// was waiting for a key". See palcommon.h for the full rationale.
+// Set by {"load":N} in _bridge_parse(); consumed by whichever
+// PAL_WaitForKey* / dialog-wait loop is currently blocking.
+static INT            g_fBridgeRecovery = 0;
+
+// Virtual clock, declared here (before _bridge_clock_domain_reset) so the
+// attach/detach boundary helper can realign it. Was previously further
+// down next to the SAID ring buffer.
+static DWORD          g_dwTicks = 0;
+
+//
+// USER「agent 退出后按键无效」: the engine's SDL_GetTicks() is mapped to
+// PAL_BridgeTicks() (common.h), which returns the VIRTUAL g_dwTicks while
+// an agent is attached and the REAL wall clock after detach. input.c's
+// keyboard debounce table is written with that clock, so leaving the
+// virtual-clock domain makes "dwCurrentTime > rgdwKeyLastTime[i]" false
+// forever and every physical keypress is swallowed. Reset the debounce
+// table whenever we cross that boundary (attach AND detach), and align
+// the virtual clock to the real one so no tick-based wait chases a stale
+// deadline.
+//
+static VOID
+_bridge_clock_domain_reset(
+   VOID
+)
+{
+   // bridge.c #undef'd SDL_GetTicks above, so this is the real clock.
+   g_dwTicks = SDL_GetTicks();
+   PAL_ResetKeyTimings();
+}
+
 static INT
 _bridge_save_allowed(VOID)
 {
@@ -166,7 +198,6 @@ _bridge_save_allowed(VOID)
 #define BRIDGE_MAX_SAID     64
 static INT            g_rgSaid[BRIDGE_MAX_SAID];
 static INT            g_nSaid = 0;
-static DWORD          g_dwTicks = 0;
 
 static char           g_szOut[BRIDGE_BUFSZ];
 static char           g_szIn[BRIDGE_BUFSZ];
@@ -327,7 +358,7 @@ _bridge_state(
 )
 {
    size_t used = 0;
-   int i;
+   int i, j;
 
 #define APP(...) do { \
       int _r = snprintf(psz + used, n - used, __VA_ARGS__); \
@@ -391,12 +422,17 @@ _bridge_state(
    g_nSaid = 0;                     // each line is reported exactly once
 
    // party members
+   // M172: "st" is only a 9-bit presence mask. Export the actual
+   // remaining-turn counters ("sts", global.h rgPlayerStatus) and the
+   // separate poison slots ("ps", rgPoisonStatus/rgObject.poison) so the
+   // planner can decide WHICH cure item (0x002B by kind / 0x002C by level)
+   // and how urgent it is, instead of guessing from party HP pressure.
    APP(",\"roles\":[");
    for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
    {
       {
          int r = (int)gpGlobals->rgParty[i].wPlayerRole;
-         int mask = 0, j;
+         int mask = 0;
          for (j = 0; j < kStatusAll; j++)
             if (gpGlobals->rgPlayerStatus[r][j])
                mask |= (1 << j);
@@ -421,6 +457,19 @@ _bridge_state(
          for (j = 0; j < MAX_PLAYER_EQUIPMENTS; j++)
             APP("%s%d", j ? "," : "",
                 (int)gpGlobals->g.PlayerRoles.rgwEquipment[j][r]);
+         APP("],\"sts\":[");
+         for (j = 0; j < kStatusAll; j++)
+            APP("%s%d", j ? "," : "",
+                (int)gpGlobals->rgPlayerStatus[r][j]);
+         APP("],\"ps\":[");
+         for (j = 0; j < MAX_POISONS; j++)
+         {
+            int pid = (int)gpGlobals->rgPoisonStatus[j][r].wPoisonID;
+            if (pid == 0)
+               break;
+            APP("%s[%d,%d]", j ? "," : "", pid,
+                (int)gpGlobals->g.rgObject[pid].poison.wPoisonLevel);
+         }
          APP("]}");
       }
    }
@@ -476,11 +525,32 @@ _bridge_state(
           (int)g_Battle.UI.wSelectedAction,
           (int)g_Battle.UI.iSelectedIndex,
           (int)g_Battle.UI.wCurPlayerIndex);
+      // M172: enemy-side truth for the status guard and the steal planner.
+      // "si" = nStealItem left (fight.c:5285 refuses to steal when 0),
+      // "it" = wStealItem (0 means the loot is CASH, fight.c:5288-5295),
+      // "sts" = rgwStatus[kStatusAll] remaining turns (battle.h:74),
+      // "ps"  = rgPoisons[] poison ids + levels (battle.h:76).
       for (i = 0; i <= g_Battle.wMaxEnemyIndex; i++)
       {
-         APP("%s{\"id\":%d,\"hp\":%d}", i ? "," : "",
+         APP("%s{\"id\":%d,\"hp\":%d,\"si\":%d,\"it\":%d,\"sts\":[",
+             i ? "," : "",
              (int)g_Battle.rgEnemy[i].wObjectID,
-             (int)g_Battle.rgEnemy[i].e.wHealth);
+             (int)g_Battle.rgEnemy[i].e.wHealth,
+             (int)g_Battle.rgEnemy[i].e.nStealItem,
+             (int)g_Battle.rgEnemy[i].e.wStealItem);
+         for (j = 0; j < kStatusAll; j++)
+            APP("%s%d", j ? "," : "",
+                (int)g_Battle.rgEnemy[i].rgwStatus[j]);
+         APP("],\"ps\":[");
+         for (j = 0; j < MAX_POISONS; j++)
+         {
+            int pid = (int)g_Battle.rgEnemy[i].rgPoisons[j].wPoisonID;
+            if (pid == 0)
+               break;
+            APP("%s[%d,%d]", j ? "," : "", pid,
+                (int)gpGlobals->g.rgObject[pid].poison.wPoisonLevel);
+         }
+         APP("]}");
       }
       // mcur/mnum/mobj = which spell the magic menu is pointing at RIGHT
       // NOW. mobj is its OBJECT id (0 when the menu is closed), so an agent
@@ -761,7 +831,13 @@ _bridge_parse(
                iSave);
       }
       if (iLoad > 0 && iLoad < 256 && gpGlobals != NULL)
+      {
          PAL_ReloadInNextTick(iLoad);
+         // Release the synchronous wait loop (dialog / WaitForKey)
+         // that is keeping the main game loop from consuming the
+         // reload flags. One-shot: only the loop that sees it breaks.
+         g_fBridgeRecovery = 1;
+      }
    }
 
    //
@@ -1545,7 +1621,7 @@ _bridge_try_accept(
    // bridge.c has #undef'd SDL_GetTicks above, so this is the real clock.
    // Align the virtual clock to it at the attach boundary.
    //
-   g_dwTicks = SDL_GetTicks();
+   _bridge_clock_domain_reset();
    fprintf(stderr, "BRIDGE agent attached; taking over current state"
            " (clock aligned %u)\n", g_dwTicks);
 }
@@ -1816,6 +1892,25 @@ PAL_BridgeWalk(
    }
 }
 
+INT
+PAL_BridgeTakeRecovery(
+   VOID
+)
+/*++
+  Purpose:
+    Consume (and clear) the one-shot recovery-load flag. Called by
+    synchronous "waiting for a key" loops so a {"load":N} sent while
+    a plot script is blocked can actually take effect.
+
+  Return value:
+    1 if a recovery load is pending, 0 otherwise.
+--*/
+{
+   INT f = g_fBridgeRecovery;
+   g_fBridgeRecovery = 0;
+   return f;
+}
+
 VOID
 PAL_BridgePump(
    VOID
@@ -1874,6 +1969,7 @@ PAL_BridgePump(
          g_nActions = 0;
          g_iAction = 0;
          _bridge_setkey(kKeyNone);
+         _bridge_clock_domain_reset();
          fprintf(stderr, "BRIDGE agent quit (detached); "
                          "game continues, waiting for next agent\n");
          return;
@@ -1905,6 +2001,7 @@ PAL_BridgePump(
       g_nActions = 0;
       g_iAction = 0;
       _bridge_setkey(kKeyNone);
+      _bridge_clock_domain_reset();
       if (g_fListen)
       {
          fprintf(stderr, "BRIDGE agent detached (send failed); "
@@ -1931,6 +2028,7 @@ PAL_BridgePump(
       g_nActions = 0;
       g_iAction = 0;
       _bridge_setkey(kKeyNone);
+      _bridge_clock_domain_reset();
       if (g_fListen)
       {
          fprintf(stderr, "BRIDGE agent detached; game continues, "
