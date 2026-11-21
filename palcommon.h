@@ -280,22 +280,52 @@ YJ2_Decompress(
 
 PAL_C_LINKAGE_END
 
+//
+// Declared here (rather than by including bridge.h) because every delay site
+// in the engine needs it and bridge.h pulls in the whole global state.
+//
+PAL_C_LINKAGE_BEGIN
+INT PAL_BridgeFast(VOID);
+INT PAL_BridgeCinematics(VOID);
+INT PAL_BridgeBootSlot(VOID);
+PAL_C_LINKAGE_END
+
+//
+// A headless agent run has no reason to match wall-clock time: skipping the
+// wait is what gets the engine to thousands of frames per second. Normal
+// play is untouched.
+//
 #define PAL_DelayUntil(t) \
    PAL_ProcessEvent(); \
-   while (!SDL_TICKS_PASSED(SDL_GetTicks(), (t))) \
+   if (!PAL_BridgeFast() || PAL_BridgeCinematics()) \
    { \
-      PAL_ProcessEvent(); \
-      SDL_Delay(1); \
+      DWORD _dwUntil = SDL_GetTicks() + 16; \
+      while (!SDL_TICKS_PASSED(SDL_GetTicks(), _dwUntil)) \
+      { \
+         PAL_ProcessEvent(); \
+         SDL_Delay(1); \
+      } \
    }
+//
+// M226: after an agent detaches, g_fEnabled goes 0 so PAL_BridgeFast()
+// becomes false and the wait above runs against the REAL clock. But dwTime
+// (game.c) was computed on the previous frame with the VIRTUAL g_dwTicks,
+// which advances +16 per pump and can be far ahead after a long fast run.
+// Chasing that deadline freezes the main loop before PAL_ProcessEvent, so
+// the engine never accepts a new agent -- looks like a dead GUI. A real
+// frame is FRAME_TIME (~16ms); only wait for a plausible interval and
+// otherwise let the loop continue (the next frame recomputes dwTime).
+//
 
 #if SDL_VERSION_ATLEAST(2,0,0)
 #define PAL_DelayUntilPC(t) \
    PAL_ProcessEvent(); \
-   while (SDL_GetPerformanceCounter() < (t)) \
-   { \
-      PAL_ProcessEvent(); \
-      SDL_Delay(1); \
-   }
+   if (!PAL_BridgeFast() || PAL_BridgeCinematics()) \
+      while (SDL_GetPerformanceCounter() < (t)) \
+      { \
+         PAL_ProcessEvent(); \
+         SDL_Delay(1); \
+      }
 #else
 #define SDL_GetPerformanceFrequency() (1000)
 #define SDL_GetPerformanceCounter SDL_GetTicks

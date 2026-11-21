@@ -20,6 +20,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 
 VOID
 PAL_GameMain(
@@ -40,12 +41,23 @@ PAL_GameMain(
 
 --*/
 {
+   PAL_BridgeMark(3);
    DWORD       dwTime;
 
    //
    // Show the opening menu.
    //
-   gpGlobals->bCurrentSaveSlot = (BYTE)PAL_OpeningMenu();
+   // USER 22:25: a resumed run must NOT replay the opening. The agent
+   // used to press through PAL_OpeningMenu() (0 = new game) and the whole
+   // opening cutscene, then load the checkpoint -- so every window
+   // restart visibly started a brand new game. Boot directly from the
+   // save slot instead; PAL_ReloadInNextTick() then loads it on the
+   // first frame of the ordinary main loop.
+   {
+      INT iBoot = PAL_BridgeBootSlot();
+      gpGlobals->bCurrentSaveSlot = (BYTE)
+         ((iBoot > 0 && iBoot < 256) ? iBoot : PAL_OpeningMenu());
+   }
    gpGlobals->fInMainGame = TRUE;
 
    //

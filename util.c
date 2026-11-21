@@ -23,6 +23,7 @@
 #include "input.h"
 #include "global.h"
 #include "palcfg.h"
+#include "bridge.h"
 #include <errno.h>
 
 #include "midi.h"
@@ -165,6 +166,13 @@ UTIL_va(
 //
 static int glSeed = 0;
 
+//
+// Seed handed down by the agent bridge. 0 means "not set", in which case the
+// engine keeps its old time-based behaviour; anything else makes the whole
+// run reproducible (same inputs -> same state hash).
+//
+static int glBridgeSeed = 0;
+
 static void
 lsrand(
    unsigned int iInitialSeed
@@ -213,7 +221,10 @@ lrand(
 --*/
 {
    if (glSeed == 0) // if the random seed isn't initialized...
-      lsrand((unsigned int)time(NULL)); // initialize it first
+   {
+      // the agent bridge supplies a fixed seed so runs are reproducible
+      lsrand((unsigned int)(glBridgeSeed ? glBridgeSeed : (int)time(NULL)));
+   }
    glSeed = 1664525L * glSeed + 1013904223L; // do some twisted math (infinite suite)
    return ((glSeed >> 1) + 1073741824L); // and return the result.
 }
@@ -284,6 +295,19 @@ UTIL_Delay(
    unsigned int t = SDL_GetTicks() + ms;
 
    PAL_ProcessEvent();
+
+   //
+   // Headless agent runs must not sit in real-time waits -- a single fade
+   // would otherwise cost seconds of wall clock for zero information.
+   //
+   // The wait still has to *mean* something: move game time on, so any loop
+   // paced by SDL_GetTicks() keeps making progress instead of spinning.
+   //
+   if (PAL_BridgeFast() && !PAL_BridgeCinematics())
+   {
+      PAL_BridgeAdvance(ms);
+      return;
+   }
 
    while (!SDL_TICKS_PASSED(SDL_GetTicks(), t))
    {
@@ -1000,4 +1024,29 @@ char *UTIL_basename(const char *filename) {
     if( !broked )
         sprintf((char*)basename_buf, "./");
     return (char*)basename_buf;
+}
+
+INT
+PAL_BridgeSetSeedImpl(
+   INT iSeed
+)
+/*++
+  Purpose:
+
+    Force the engine's LCG onto a known seed so a run can be replayed.
+    Declared in bridge.h; lives here because glSeed/glBridgeSeed are private.
+
+  Parameters:
+
+    [IN]  iSeed - the seed to use (0 keeps the current behaviour).
+
+  Return value:
+
+    The seed that was installed.
+
+--*/
+{
+   glBridgeSeed = iSeed;
+   lsrand((unsigned int)iSeed);
+   return iSeed;
 }

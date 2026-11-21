@@ -20,6 +20,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 #include <setjmp.h>
 
 #if SDL_VERSION_ATLEAST(3,0,0)
@@ -71,6 +72,13 @@ PAL_Init(
 #endif
 
    //
+   // Agent bridge: first thing, so the RNG is seeded before anything rolls
+   // a die and the agent is already listening while the game loads. Does
+   // nothing at all unless PAL_AGENT=1.
+   //
+   PAL_BridgeInit();
+
+   //
    // Initialize subsystems.
    //
    e = PAL_InitGlobals();
@@ -107,7 +115,8 @@ PAL_Init(
 
    PAL_InitInput();
    PAL_InitResources();
-   AUDIO_OpenDevice();
+   if (!PAL_BridgeFast() || PAL_BridgeAudio())
+      AUDIO_OpenDevice();
    PAL_AVIInit();
 
    VIDEO_SetWindowTitle(UTIL_va(UTIL_GlobalBuffer(0), PAL_GLOBAL_BUFFER_SIZE,
@@ -194,6 +203,7 @@ PAL_TrademarkScreen(
 
 --*/
 {
+   PAL_BridgeMark(1);
    if (PAL_PlayAVI("1.avi")) return;
 
    PAL_SetPalette(3, FALSE);
@@ -221,6 +231,7 @@ PAL_SplashScreen(
 
 --*/
 {
+   PAL_BridgeMark(2);
    SDL_Color     *palette = PAL_GetPalette(1, FALSE);
    SDL_Color      rgCurrentPalette[256];
    SDL_Surface   *lpBitmapDown, *lpBitmapUp;
@@ -436,10 +447,27 @@ PAL_SplashScreen(
       // Delay a while...
       //
       PAL_ProcessEvent();
-      while (SDL_GetTicks() - dwBeginTime < dwTime + 85)
+
+      //
+      // Headless: this wait is paced by SDL_GetTicks() and burns ~85 ms of
+      // real time (and a few hundred input pumps) per title-screen frame.
+      // Skipping it also means a keypress is still held when the loop's own
+      // key check runs, instead of being replaced by an idle frame.
+      //
+      // REVERTED 22:39: letting cinematics run this 85 ms wait here
+      // DEADLOCKS the splash screen. The loop pumps PAL_ProcessEvent()
+      // hundreds of times inside the wait, consuming the bridge's
+      // 3-frame Enter long before the loop's own keypress check; the
+      // title then never exits (measured: ui=2 for 350+ batches).
+      // The in-game cutscenes -- which are what a normal player watches --
+      // are paced by script.c's PAL_DelayUntil and DO play normally.
+      if (!PAL_BridgeFast())
       {
-         SDL_Delay(1);
-         PAL_ProcessEvent();
+         while (SDL_GetTicks() - dwBeginTime < dwTime + 85)
+         {
+            SDL_Delay(1);
+            PAL_ProcessEvent();
+         }
       }
    }
 
@@ -542,8 +570,15 @@ main(
    //
    // Show the trademark screen and splash screen
    //
-   PAL_TrademarkScreen();
-   PAL_SplashScreen();
+   // USER 22:25: when booting straight into a save, the trademark and
+   // splash/title screens are part of the "new game" presentation that
+   // made every restart look like a fresh start. A theatrical run still
+   // plays every IN-GAME cutscene normally (cinematics=1).
+   if (PAL_BridgeBootSlot() <= 0)
+   {
+      PAL_TrademarkScreen();
+      PAL_SplashScreen();
+   }
 
    //
    // Run the main game routine

@@ -23,6 +23,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 #include <errno.h>
 #include <wctype.h>
 
@@ -1245,6 +1246,7 @@ PAL_StartDialogWithOffset(
 
 --*/
 {
+   PAL_BridgeDialogBegin();
    PAL_LARGE BYTE buf[PAL_RLEBUFSIZE];
    SDL_Rect       rect;
 
@@ -1376,6 +1378,8 @@ PAL_DialogWaitForKeyWithMaximumSeconds(
    int         i;
    uint32_t    dwBeginningTicks = SDL_GetTicks();
 
+   PAL_BridgeWaitKey(TRUE);
+
    //
    // get the current palette
    //
@@ -1445,6 +1449,7 @@ PAL_DialogWaitForKeyWithMaximumSeconds(
    PAL_ClearKeyState();
 
    g_TextLib.fUserSkip = FALSE;
+   PAL_BridgeWaitKey(FALSE);
 }
 
 static VOID
@@ -1771,6 +1776,14 @@ PAL_ClearDialog(
    {
       PAL_DialogWaitForKey();
    }
+
+   //
+   // Only now is the dialog gone. Clearing the bridge's flag at the top of
+   // this function reported "no dialog" for exactly the stretch the player
+   // spends reading it -- the wait above -- so every conversation looked
+   // silent even though the script ran and the item was handed over.
+   //
+   PAL_BridgeDialogEnd();
 
    g_TextLib.nCurrentDialogLine = 0;
 

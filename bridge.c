@@ -30,6 +30,10 @@
 extern int  PAL_MagicMenuCursor(VOID);
 extern int  PAL_MagicMenuCount(VOID);
 extern WORD PAL_MagicMenuSpell(int i);
+// uigame.c accessors: which party member the use-item menu points at.
+extern int  PAL_ItemUseMenuCursor(VOID);
+extern WORD PAL_ItemUseMenuRole(VOID);
+extern int  PAL_ItemUseMenuActive(VOID);
 
 //
 // common.h aliases SDL_GetTicks to the bridge's virtual clock; the bridge
@@ -351,6 +355,16 @@ _bridge_state(
    // equip menu (PAL_EquipItemMenu): the item being worn and the member the
    // cursor is on; 0 when the menu is closed
    APP(",\"eqm\":%d,\"eqs\":%d", g_nEquipItem, g_nEquipSel);
+   // pcur/prole = the party-member cursor in PAL_ItemUseMenu and the
+   // role id it points at. 0xFFFF means no valid member. A single-target
+   // medicine must be applied to the role the planner picked, not to
+   // whatever static sSelectedPlayer happens to hold from last time.
+   // puse = the party-select menu is open. Unlike itm (item-select menu)
+   // it is a separate synchronous modal; leaving it open swallows every
+   // direction key and freezes the party after a supply action.
+   APP(",\"pcur\":%d,\"prole\":%d,\"puse\":%d",
+       PAL_ItemUseMenuCursor(), (int)PAL_ItemUseMenuRole(),
+       PAL_ItemUseMenuActive());
    APP(",\"itm\":%d", g_fItemMenu);
    APP(",\"fp\":\"%llu\"", _bridge_fingerprint());
    APP(",\"inbattle\":%d", gpGlobals->fInBattle ? 1 : 0);
@@ -471,6 +485,19 @@ _bridge_state(
       // mcur/mnum/mobj = which spell the magic menu is pointing at RIGHT
       // NOW. mobj is its OBJECT id (0 when the menu is closed), so an agent
       // can verify the selection against DATA.MKF before confirming.
+      //
+      // mspells = the FULL list of spells this role has actually learned
+      // (magicmenu.c PAL_MagicSelectionMenuInit only fills rgwMagic[i][role]).
+      // USER: combat_policy.json spellPlan is a whole-career table; at lv1
+      // the party only knows 296 (气疗术), so asking for 377 (飞龙探云手)
+      // sent the agent into the magic menu forever -- right clamps at the
+      // last item and the target spell simply does not exist. Export the
+      // runtime truth so the planner can check BEFORE entering the menu.
+      APP("],\"mspells\":[");
+      for (i = 0; i < PAL_MagicMenuCount(); i++)
+      {
+         APP("%s%d", i ? "," : "", (int)PAL_MagicMenuSpell(i));
+      }
       APP("],\"mcur\":%d,\"mnum\":%d,\"mobj\":%d}",
           PAL_MagicMenuCursor(), PAL_MagicMenuCount(),
           (int)PAL_MagicMenuSpell(PAL_MagicMenuCursor()));
@@ -1400,7 +1427,11 @@ _bridge_handshake(
    strncat(szHello, "]}\n", sizeof(szHello) - strlen(szHello) - 1);
 
    if (!_bridge_send(szHello))
+   {
+      fprintf(stderr, "[BRIDGE] hello send FAILED fd=%d\n", (int)g_sock);
       return 0;
+   }
+   fprintf(stderr, "[BRIDGE] hello sent fd=%d\n", (int)g_sock);
 
    pszLine = _bridge_recv_line();
    if (pszLine == NULL)
@@ -1470,8 +1501,21 @@ _bridge_try_accept(
    PAL_SOCKET c = accept(g_listenSock, NULL, NULL);
    if (c == PAL_INVALID_SOCK)
       return;                 // no agent yet: standalone frame
+   fprintf(stderr, "[BRIDGE] accept ok fd=%d enabled=%d listen=%d\n",
+           (int)c, g_fEnabled, g_fListen);
 #if !defined(_WIN32)
    fcntl(c, F_SETFL, fcntl(c, F_GETFL, 0) & ~O_NONBLOCK);
+   //
+   // M226: a stale/half-closed connection in the accept backlog used to
+   // block _bridge_handshake() forever in recv(), freezing the main loop
+   // so the REAL next agent was never accepted. Bound the handshake read.
+   //
+   {
+      struct timeval tv;
+      tv.tv_sec = 2;
+      tv.tv_usec = 0;
+      setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, (const void *)&tv, sizeof(tv));
+   }
 #endif
    g_sock = c;
    g_nInLen = 0;
@@ -1483,12 +1527,27 @@ _bridge_try_accept(
    g_nWorldFrames = 0;
    if (!_bridge_handshake(0))
    {
+      fprintf(stderr, "[BRIDGE] handshake FAILED fd=%d\n", (int)g_sock);
       PAL_CLOSE(g_sock);
       g_sock = PAL_INVALID_SOCK;
       return;
    }
    g_fEnabled = 1;
-   fprintf(stderr, "BRIDGE agent attached; taking over current state\n");
+   fprintf(stderr, "[BRIDGE] handshake OK fd=%d\n", (int)g_sock);
+   //
+   // M226: the standalone frames computed dwTime (game.c) with the REAL
+   // SDL_GetTicks(). Once g_fEnabled=1, PAL_BridgeTicks() switches to the
+   // virtual g_dwTicks, which still starts at 0. Any tick-based wait
+   // (PAL_DelayUntil under cinematics/non-fast, PAL_WaitForKey*, battle
+   // animations) then chases a huge deadline one pump at a time: the main
+   // loop never reaches PAL_ClearKeyState/PAL_StartFrame, so clr=0, ctl=0,
+   // keys are recorded but the party never moves -- looks like a dead GUI.
+   // bridge.c has #undef'd SDL_GetTicks above, so this is the real clock.
+   // Align the virtual clock to it at the attach boundary.
+   //
+   g_dwTicks = SDL_GetTicks();
+   fprintf(stderr, "BRIDGE agent attached; taking over current state"
+           " (clock aligned %u)\n", g_dwTicks);
 }
 
 VOID

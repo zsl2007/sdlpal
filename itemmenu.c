@@ -20,6 +20,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 
 static int     g_iNumInventory = 0;
 static WORD    g_wItemFlags = 0;
@@ -422,6 +423,7 @@ PAL_ItemSelectMenu(
       {
          PAL_MakeScene();
       }
+      PAL_BridgeItemMenu(1);
 
       w = PAL_ItemSelectMenuUpdate();
       VIDEO_UpdateScreen(NULL);
@@ -444,6 +446,7 @@ PAL_ItemSelectMenu(
       if (w != 0xFFFF)
       {
          g_fNoDesc = FALSE;
+         PAL_BridgeItemMenu(0);
          return w;
       }
 

@@ -53,6 +53,7 @@
  */
 
 #include "util.h"
+#include "bridge.h"
 #include "audio.h"
 #include "aviplay.h"
 #include "input.h"
@@ -644,6 +645,14 @@ PAL_PlayAVI(
     LPCSTR     lpszPath
 )
 {
+   //
+   // Headless runs want no sound at all: it costs time, needs a device,
+   // and -- worse -- a music call can block waiting on an audio thread
+   // that was never started, hanging the engine before the title screen.
+   //
+   if (PAL_BridgeFast() && !PAL_BridgeCinematics())
+      return FALSE;
+
 	if (!gConfig.fEnableAviPlay) return FALSE;
 
 	//

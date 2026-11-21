@@ -23,9 +23,20 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 
 BOOL            g_fScriptSuccess = TRUE;
 static int      g_iCurEquipPart = -1;
+
+// USER 23:43 "能打开菜单 才能保存啊". A plot script runs synchronously
+// inside PAL_GameUpdate(), so the PAL_InGameMenu() check at the tail of
+// PAL_StartFrame() is unreachable while one is active. The bridge still
+// sends a state report in the middle of a script (PAL_WaitForKey ->
+// UTIL_Delay -> PAL_ProcessEvent), which used to let the agent freeze a
+// half-executed script into the .rpg file. SAVEDGAME has no script PC,
+// so reloading such a file can never resume the script. Export the
+// nesting depth so the bridge can refuse saves while it is non-zero.
+INT             g_nScriptDepth = 0;
 
 static BOOL
 PAL_NPCWalkTo(
@@ -3170,6 +3181,7 @@ PAL_RunTriggerScript(
 
    extern BOOL       g_fUpdatedInBattle; // HACKHACK
 
+   g_nScriptDepth++;
    wNextScriptEntry = wScriptEntry;
    fEnded = FALSE;
    g_fUpdatedInBattle = FALSE;
@@ -3462,6 +3474,13 @@ PAL_RunTriggerScript(
          }
 		 else
          {
+            //
+            // Tell the bridge which M.MSG line this is. This is the only
+            // place the text is chosen; PAL_StartDialog()'s byte argument is
+            // the font colour, and reading that as a message number reported
+            // line 0 ("this door is locked") for every speaker.
+            //
+            PAL_BridgeDialogIndex((INT)pScript->rgwOperand[0]);
             PAL_ShowDialogText(PAL_GetMsg(pScript->rgwOperand[0]));
             wScriptEntry++;
          }
@@ -3477,6 +3496,7 @@ PAL_RunTriggerScript(
    PAL_EndDialog();
    g_iCurEquipPart = -1;
 
+   g_nScriptDepth--;
    return wNextScriptEntry;
 }
 

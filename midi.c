@@ -20,6 +20,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 
 static int  g_iMidiCurrent = -1;
 static NativeMidiSong *g_pMidi = NULL;
@@ -45,6 +46,14 @@ MIDI_Play(
 	BOOL      fLoop
 )
 {
+   //
+   // Headless runs want no sound at all: it costs time, needs a device,
+   // and -- worse -- a music call can block waiting on an audio thread
+   // that was never started, hanging the engine before the title screen.
+   //
+   if (PAL_BridgeFast() && !PAL_BridgeAudio())
+      return;
+
 #if PAL_HAS_NATIVEMIDI
 	if (!native_midi_detect())
 		return;

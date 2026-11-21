@@ -20,6 +20,7 @@
 //
 #include <float.h>
 #include "main.h"
+#include "bridge.h"
 
 // Screen buffer
 SDL_Surface              *gpScreen           = NULL;
@@ -536,6 +537,17 @@ VIDEO_UpdateScreen(
    short           offset = 240 - 200;
    short           screenRealHeight = gpScreenReal->h;
    short           screenRealY = 0;
+
+   //
+   // Headless: nobody is looking. Blitting and presenting a 320x200 frame
+   // is by far the most expensive thing per frame, and dropping it is what
+   // takes a run from a few hundred fps to the thousands the offline search
+   // needs. Set PAL_AGENT_RENDER=1 to keep the picture (for debugging).
+   //
+   if (PAL_BridgeNoRender())
+   {
+      return;
+   }
 
 #if SDL_VERSION_ATLEAST(2,0,0)
    if (g_bRenderPaused)

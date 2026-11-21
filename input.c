@@ -21,6 +21,7 @@
 
 #include "main.h"
 #include <math.h>
+#include "bridge.h"
 
 volatile PALINPUTSTATE   g_InputState;
 #if PAL_HAS_JOYSTICKS
@@ -1206,6 +1207,15 @@ PAL_ClearKeyState(
 --*/
 {
    g_InputState.dwKeyPress = 0;
+
+   //
+   // The engine has consumed the key, so the agent's current action is done.
+   // Without this the injected key would still be "held" when the next
+   // action replaces it, and a press is easily swallowed between two
+   // PAL_ProcessEvent() calls inside one engine iteration -- which is
+   // exactly how a keypress gets lost.
+   //
+   PAL_BridgeConsumed();
 }
 
 VOID
@@ -1338,6 +1348,14 @@ PAL_ProcessEvent(
 #if PAL_HAS_TOUCH
    PAL_TouchRepeatCheck();
 #endif
+
+   //
+   // The bridge serves the agent's keyboard from here. Every "waiting for
+   // the player" loop in the engine -- walking, dialogs, menus, shops, the
+   // battle UI -- funnels through PAL_ProcessEvent, so one hook covers all
+   // of them and the agent drives the real input path.
+   //
+   PAL_BridgePump();
 }
 
 VOID

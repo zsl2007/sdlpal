@@ -25,6 +25,38 @@
 //#define INVINCIBLE 1
 extern WORD g_rgPlayerPos[3][3][2];
 
+// Enemy HP is an UNSIGNED WORD, but the original damage code does a bare
+// `wHealth -= sDamage`. An overkill hit (e.g. 2175 damage from 乾坤一擲
+// onto a summoned minion with 1325 HP left) underflows to ~64000. Both
+// PAL_BattleSelectAutoTarget and the battle-result check use
+// `wHealth > 0`, so the dead minion is treated as ALIVE with enormous HP:
+// the fight never ends and the battle UI stops accepting keys. This is the
+// exact freeze measured at boss HP 12136 with enemies
+// [{id:0,hp:65388},{id:546,hp:12136},{id:0,hp:65402}].
+// Clamp the subtraction to zero. No damage value is changed -- this only
+// makes "dead" mean 0 instead of a wrapped positive number.
+static VOID
+PAL_EnemyTakeDamage(int iEnemy, int iDamage)
+{
+   if (iEnemy < 0 || iEnemy > (int)g_Battle.wMaxEnemyIndex ||
+       iEnemy >= MAX_ENEMIES_IN_TEAM)
+   {
+      return;   // -1 means "all enemies"; never index with it
+   }
+   if (iDamage < 0)
+   {
+      iDamage = 0;
+   }
+   if (iDamage >= (int)g_Battle.rgEnemy[iEnemy].e.wHealth)
+   {
+      g_Battle.rgEnemy[iEnemy].e.wHealth = 0;
+   }
+   else
+   {
+      g_Battle.rgEnemy[iEnemy].e.wHealth -= (WORD)iDamage;
+   }
+}
+
 BOOL
 PAL_IsPlayerDying(
    WORD        wPlayerRole
@@ -3662,7 +3694,7 @@ PAL_BattlePlayerPerformAction(
                sDamage = 1;
             }
 
-            g_Battle.rgEnemy[sTarget].e.wHealth -= sDamage;
+            PAL_EnemyTakeDamage(sTarget, sDamage);
 
             if (t == 0)
             {
@@ -3723,7 +3755,7 @@ PAL_BattlePlayerPerformAction(
                   sDamage = 1;
                }
 
-               g_Battle.rgEnemy[index[i]].e.wHealth -= sDamage;
+               PAL_EnemyTakeDamage(index[i], sDamage);
 
                if (g_Battle.rgEnemy[index[i]].wObjectID != 0)
                     division *= 2;
@@ -4020,7 +4052,7 @@ PAL_BattlePlayerPerformAction(
                sDamage = 1;
             }
 
-            g_Battle.rgEnemy[i].e.wHealth -= sDamage;
+            PAL_EnemyTakeDamage(i, sDamage);
          }
       }
       else
@@ -4039,7 +4071,7 @@ PAL_BattlePlayerPerformAction(
             sDamage = 1;
          }
 
-         g_Battle.rgEnemy[sTarget].e.wHealth -= sDamage;
+         PAL_EnemyTakeDamage(sTarget, sDamage);
       }
 
       PAL_BattleDisplayStatChange();
@@ -4293,7 +4325,7 @@ PAL_BattlePlayerPerformAction(
                         sDamage = 1;
                      }
 
-                     g_Battle.rgEnemy[i].e.wHealth -= sDamage;
+                     PAL_EnemyTakeDamage(i, sDamage);
                   }
                }
                else
@@ -4313,7 +4345,7 @@ PAL_BattlePlayerPerformAction(
                      sDamage = 1;
                   }
 
-                  g_Battle.rgEnemy[sTarget].e.wHealth -= sDamage;
+                  PAL_EnemyTakeDamage(sTarget, sDamage);
                }
             }
          }
@@ -4642,7 +4674,7 @@ PAL_BattleEnemyPerformAction(
          sDamage = 1;
       }
 
-      g_Battle.rgEnemy[iTarget].e.wHealth -= sDamage;
+      PAL_EnemyTakeDamage(iTarget, sDamage);
 
       PAL_BattleDisplayStatChange();
       PAL_BattleShowPostMagicAnim();
@@ -5370,7 +5402,7 @@ PAL_BattleSimulateMagic(
                sDamage = 0;
             }
 
-            g_Battle.rgEnemy[i].e.wHealth -= sDamage;
+            PAL_EnemyTakeDamage(i, sDamage);
          }
       }
       else
@@ -5394,7 +5426,7 @@ PAL_BattleSimulateMagic(
             sDamage = 0;
          }
 
-         g_Battle.rgEnemy[sTarget].e.wHealth -= sDamage;
+         PAL_EnemyTakeDamage(sTarget, sDamage);
       }
    }
 }

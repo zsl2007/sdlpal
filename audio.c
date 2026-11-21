@@ -20,6 +20,7 @@
 //
 
 #include "palcommon.h"
+#include "bridge.h"
 #include "global.h"
 #include "palcfg.h"
 #include "audio.h"
@@ -550,6 +551,14 @@ AUDIO_PlayMusic(
    FLOAT     flFadeTime
 )
 {
+   //
+   // Headless runs want no sound at all: it costs time, needs a device,
+   // and -- worse -- a music call can block waiting on an audio thread
+   // that was never started, hanging the engine before the title screen.
+   //
+   if (PAL_BridgeFast() && !PAL_BridgeAudio())
+      return;
+
 	if (iNumRIX > 0)
 	{
 		//

@@ -23,6 +23,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 
 static INT
 PAL_RNGReadFrame(
@@ -396,6 +397,14 @@ PAL_RNGPlay(
 
 --*/
 {
+   //
+   // Headless runs want no sound at all: it costs time, needs a device,
+   // and -- worse -- a music call can block waiting on an audio thread
+   // that was never started, hanging the engine before the title screen.
+   //
+   if (PAL_BridgeFast() && !PAL_BridgeCinematics())
+      return;
+
    double         iDelay = (double)SDL_GetPerformanceFrequency() / (iSpeed == 0 ? 16 : iSpeed);
    uint8_t        *rng = (uint8_t *)malloc(65000);
    uint8_t        *buf = (uint8_t *)malloc(65000);

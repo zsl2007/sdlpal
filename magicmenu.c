@@ -32,6 +32,33 @@ static int     g_iNumMagic = 0;
 static int     g_iCurrentItem = 0;
 static WORD    g_wPlayerMP = 0;
 
+// The agent bridge needs to READ the magic-menu cursor. magicmenu.c keeps it
+// in a static local, so without these accessors an agent can only guess
+// which spell it is about to confirm (home + n*right drifted by 2 slots in
+// tests/probe_546_money.py -- 乾坤一擲 was never actually cast and cash
+// never moved). Expose the cursor, the count, and the object id under it.
+int
+PAL_MagicMenuCursor(VOID)
+{
+   return g_iCurrentItem;
+}
+
+int
+PAL_MagicMenuCount(VOID)
+{
+   return g_iNumMagic;
+}
+
+WORD
+PAL_MagicMenuSpell(int i)
+{
+   if (i >= 0 && i < g_iNumMagic && i < MAX_PLAYER_MAGICS)
+   {
+      return rgMagicItem[i].wMagic;
+   }
+   return 0;
+}
+
 WORD
 PAL_MagicSelectionMenuUpdate(
    VOID

@@ -45,6 +45,26 @@
 
 #include "sdl_compat.h"
 
+//
+// Agent bridge: route the engine's wall-clock reads through a virtual clock
+// so identical input logs produce identical runs. PAL_BridgeTicks() returns
+// the real SDL ticks whenever the bridge is off, so normal play is entirely
+// unaffected.
+//
+#ifdef __cplusplus
+extern "C" unsigned int PAL_BridgeTicks(void);
+extern "C" void PAL_BridgeAdvance(unsigned int ms);
+void PAL_BridgeAdvance(unsigned int ms);
+extern "C" void PAL_BridgeDelay(unsigned int ms);
+#else
+unsigned int PAL_BridgeTicks(void);
+void PAL_BridgeAdvance(unsigned int ms);
+void PAL_BridgeDelay(unsigned int ms);
+#endif
+
+#define SDL_GetTicks PAL_BridgeTicks
+#define SDL_Delay    PAL_BridgeDelay
+
 #define __WIDETEXT(quote) L##quote
 #define WIDETEXT(quote) __WIDETEXT(quote)
 

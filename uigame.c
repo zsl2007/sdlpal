@@ -20,6 +20,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 
 static BOOL __buymenu_firsttime_render;
 
@@ -98,6 +99,7 @@ PAL_OpeningMenu(
 
 --*/
 {
+   PAL_BridgeMark(4);
    WORD          wItemSelected;
    WORD          wDefaultItem     = 0;
    INT           w[2] = { PAL_WordWidth(MAINMENU_LABEL_NEWGAME), PAL_WordWidth(MAINMENU_LABEL_LOADGAME) };
@@ -184,6 +186,7 @@ PAL_SaveSlotMenu(
 
 --*/
 {
+   PAL_BridgeMark(5);
    LPBOX           rgpBox[5];
    int             i, w = PAL_WordMaxWidth(LOADMENU_LABEL_SLOT_FIRST, 5);
    int             dx = (w > 4) ? (w - 4) * 16 : 0;
@@ -359,7 +362,11 @@ PAL_ConfirmMenu(
 --*/
 {
    WORD wItems[2] = { CONFIRMMENU_LABEL_NO, CONFIRMMENU_LABEL_YES };
-   WORD wReturnValue = PAL_SelectionMenu(2, 0, wItems);
+   WORD wReturnValue;
+
+   PAL_BridgeConfirm(TRUE);
+   wReturnValue = PAL_SelectionMenu(2, 0, wItems);
+   PAL_BridgeConfirm(FALSE);
 
    return (wReturnValue == MENUITEM_VALUE_CANCELLED || wReturnValue == 0) ? FALSE : TRUE;
 }
@@ -1285,6 +1292,37 @@ PAL_PlayerStatus(
    }
 }
 
+// USER「吃道具要分人，不要给错人」：PAL_ItemUseMenu 的成员选择光标
+// 原本是函数内 static，bridge 看不到，Java 补给层只能盲按 search。
+// 提到文件级并暴露 cursor + 当前指向的 role id，供 state dump 使用。
+static SHORT sSelectedPlayer = 0;
+// USER「补给结束后引擎留在选队员菜单，方向键全被吞」：itm 只标记
+// 道具选择菜单，PAL_ItemUseMenu 是另一个同步 modal，bridge 看不见。
+static BOOL fItemUseMenuActive = FALSE;
+
+int
+PAL_ItemUseMenuActive(VOID)
+{
+   return fItemUseMenuActive ? 1 : 0;
+}
+
+int
+PAL_ItemUseMenuCursor(VOID)
+{
+   return (int)sSelectedPlayer;
+}
+
+WORD
+PAL_ItemUseMenuRole(VOID)
+{
+   if (gpGlobals == NULL || sSelectedPlayer < 0
+       || sSelectedPlayer > gpGlobals->wMaxPartyMemberIndex)
+   {
+      return 0xFFFF;
+   }
+   return gpGlobals->rgParty[sSelectedPlayer].wPlayerRole;
+}
+
 WORD
 PAL_ItemUseMenu(
    WORD           wItemToUse
@@ -1308,12 +1346,12 @@ PAL_ItemUseMenu(
    BYTE           bColor, bSelectedColor;
    PAL_LARGE BYTE bufImage[2048];
    DWORD          dwColorChangeTime;
-   static SHORT   sSelectedPlayer = 0;
    SDL_Rect       rect = {110, 2, 200, 180};
    int            i;
 
    bSelectedColor = MENUITEM_COLOR_SELECTED_FIRST;
    dwColorChangeTime = 0;
+   fItemUseMenuActive = TRUE;
 
    while (TRUE)
    {
@@ -1467,6 +1505,7 @@ PAL_ItemUseMenu(
 
       if (i <= 0)
       {
+         fItemUseMenuActive = FALSE;
          return MENUITEM_VALUE_CANCELLED;
       }
 
@@ -1492,10 +1531,12 @@ PAL_ItemUseMenu(
       }
       else if (g_InputState.dwKeyPress & kKeySearch)
       {
+         fItemUseMenuActive = FALSE;
          return gpGlobals->rgParty[sSelectedPlayer].wPlayerRole;
       }
    }
 
+   fItemUseMenuActive = FALSE;
    return MENUITEM_VALUE_CANCELLED;
 }
 
@@ -1857,6 +1898,7 @@ PAL_EquipItemMenu(
    while (TRUE)
    {
       wItem = gpGlobals->wLastUnequippedItem;
+      PAL_BridgeEquipMenu((INT)wItem, iCurrentPlayer);
 
       //
       // Draw the background
@@ -2015,6 +2057,7 @@ PAL_EquipItemMenu(
 
       if (wItem == 0)
       {
+         PAL_BridgeEquipMenu(0, 0);
          return;
       }
 
@@ -2036,6 +2079,7 @@ PAL_EquipItemMenu(
       }
       else if (g_InputState.dwKeyPress & kKeyMenu)
       {
+         PAL_BridgeEquipMenu(0, 0);
          return;
       }
       else if (g_InputState.dwKeyPress & kKeySearch)

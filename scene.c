@@ -23,6 +23,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 
 #define MAX_SPRITE_TO_DRAW         2048
 
@@ -794,6 +795,7 @@ PAL_UpdateParty(
 
 --*/
 {
+   PAL_BridgeWalk();
    int              xSource, ySource, xTarget, yTarget, xOffset, yOffset, i;
 
    //

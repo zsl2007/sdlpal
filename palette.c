@@ -20,6 +20,7 @@
 //
 
 #include "main.h"
+#include "bridge.h"
 
 SDL_Color *
 PAL_GetPalette(
@@ -158,6 +159,19 @@ PAL_FadeOut(
    memset(newpalette, 0xff, sizeof(SDL_Color)*256);
 
    //
+   // Headless: the fade loop is paced by SDL_GetTicks() and exits only when
+   // real time has passed. With UTIL_Delay() a no-op it becomes a busy loop
+   // that burns agent actions for half a second doing nothing, so just land
+   // on the final palette.
+   //
+   if (PAL_BridgeFast() && !PAL_BridgeCinematics())
+   {
+      memset(newpalette, 0, sizeof(newpalette));
+      VIDEO_SetPalette(newpalette);
+      return;
+   }
+
+   //
    // Start fading out...
    //
    time = SDL_GetTicks() + iDelay * 10 * 60;
@@ -225,6 +239,19 @@ PAL_FadeIn(
    // Get the new palette...
    //
    palette = PAL_GetPalette(iPaletteNum, fNight);
+
+   //
+   // Headless: see PAL_FadeOut -- the fade is pure presentation and its loop
+   // is paced by wall-clock time, so skip to the end.
+   //
+   if (PAL_BridgeFast() && !PAL_BridgeCinematics())
+   {
+      if (palette != NULL)
+      {
+         VIDEO_SetPalette(palette);
+      }
+      return;
+   }
 
    //
    // Start fading in...
