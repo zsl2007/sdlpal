@@ -132,7 +132,15 @@ extern INT            g_nScriptDepth;
 // was waiting for a key". See palcommon.h for the full rationale.
 // Set by {"load":N} in _bridge_parse(); consumed by whichever
 // PAL_WaitForKey* / dialog-wait loop is currently blocking.
-static INT            g_fBridgeRecovery = 0;
+// USER「持续迭代目标通关」：a pre-battle script has dozens of dialog
+// lines, EACH with its own PAL_DialogWaitForKey loop. A one-shot flag
+// frees only the first loop; the next one blocks again and the engine
+// never returns to game.c, so PAL_LoadResources() never consumes the
+// reload flags. Give the recovery request a bounded frame budget so
+// every wait loop in that script can break, then let it expire so
+// ordinary dialogs are unaffected.
+static INT            g_nBridgeRecoveryBudget = 0;
+#define BRIDGE_RECOVERY_BUDGET 512
 
 // Virtual clock, declared here (before _bridge_clock_domain_reset) so the
 // attach/detach boundary helper can realign it. Was previously further
@@ -833,10 +841,9 @@ _bridge_parse(
       if (iLoad > 0 && iLoad < 256 && gpGlobals != NULL)
       {
          PAL_ReloadInNextTick(iLoad);
-         // Release the synchronous wait loop (dialog / WaitForKey)
-         // that is keeping the main game loop from consuming the
-         // reload flags. One-shot: only the loop that sees it breaks.
-         g_fBridgeRecovery = 1;
+         // Release EVERY synchronous wait loop in this pre-battle
+         // script (48 dialog lines), not just the first one.
+         g_nBridgeRecoveryBudget = BRIDGE_RECOVERY_BUDGET;
          // USER「持续迭代目标通关」: a pre-battle script can contain
          // dozens of dialog lines, each with its OWN WaitForKey loop.
          // A one-shot flag frees only the first one, so the engine
@@ -1920,9 +1927,16 @@ PAL_BridgeTakeRecovery(
     1 if a recovery load is pending, 0 otherwise.
 --*/
 {
-   INT f = g_fBridgeRecovery;
-   g_fBridgeRecovery = 0;
-   return f;
+   // Consume ONE unit of the bounded budget, not the whole flag:
+   // each PAL_DialogWaitForKey loop in the blocked script needs its
+   // own break. Expiring after BRIDGE_RECOVERY_BUDGET keeps normal
+   // dialogs untouched.
+   if (g_nBridgeRecoveryBudget > 0)
+   {
+      g_nBridgeRecoveryBudget--;
+      return 1;
+   }
+   return 0;
 }
 
 VOID
