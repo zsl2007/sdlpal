@@ -30,6 +30,10 @@
 extern int  PAL_MagicMenuCursor(VOID);
 extern int  PAL_MagicMenuCount(VOID);
 extern WORD PAL_MagicMenuSpell(int i);
+// mnum alone is a stale static after the menu closes; mopen is the
+// real "synchronous modal is running" flag (WORLD-phase supply could
+// otherwise leave it open and freeze the party with ctl=0 forever).
+extern int  PAL_MagicMenuIsOpen(VOID);
 // uigame.c accessors: which party member the use-item menu points at.
 extern int  PAL_ItemUseMenuCursor(VOID);
 extern WORD PAL_ItemUseMenuRole(VOID);
@@ -597,9 +601,10 @@ _bridge_state(
    // blind while using healing spells for post-battle supply in the
    // overworld. Duplicate as a top-level "magic" object instead of
    // moving the battle fields (keeps battle JSON schema unchanged).
-   APP(",\"magic\":{\"mcur\":%d,\"mnum\":%d,\"mobj\":%d,\"mspells\":[",
+   APP(",\"magic\":{\"mcur\":%d,\"mnum\":%d,\"mobj\":%d,\"mopen\":%d,\"mspells\":[",
        PAL_MagicMenuCursor(), PAL_MagicMenuCount(),
-       (int)PAL_MagicMenuSpell(PAL_MagicMenuCursor()));
+       (int)PAL_MagicMenuSpell(PAL_MagicMenuCursor()),
+       PAL_MagicMenuIsOpen());
    for (i = 0; i < PAL_MagicMenuCount(); i++)
    {
       APP("%s%d", i ? "," : "", (int)PAL_MagicMenuSpell(i));

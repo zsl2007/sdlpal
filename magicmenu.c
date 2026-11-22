@@ -31,6 +31,18 @@ static struct MAGICITEM
 static int     g_iNumMagic = 0;
 static int     g_iCurrentItem = 0;
 static WORD    g_wPlayerMP = 0;
+// USER "补给卡住": g_iNumMagic is NOT cleared when the WORLD-phase
+// magic menu closes, so mnum>0 alone cannot tell whether the modal is
+// still open. This flag latches only while PAL_MagicSelectionMenu()
+// is actually running (the synchronous loop that swallows direction
+// keys). The bridge dumps it as magic.mopen.
+static int     g_fMagicMenuOpen = 0;
+
+int
+PAL_MagicMenuIsOpen(VOID)
+{
+   return g_fMagicMenuOpen;
+}
 
 // The agent bridge needs to READ the magic-menu cursor. magicmenu.c keeps it
 // in a static local, so without these accessors an agent can only guess
@@ -467,6 +479,7 @@ PAL_MagicSelectionMenu(
 
    PAL_MagicSelectionMenuInit(wPlayerRole, fInBattle, wDefaultMagic);
    PAL_ClearKeyState();
+   g_fMagicMenuOpen = 1;
 
    dwTime = SDL_GetTicks();
 
@@ -490,6 +503,7 @@ PAL_MagicSelectionMenu(
 
       if (w != 0xFFFF)
       {
+         g_fMagicMenuOpen = 0;
          return w;
       }
 
@@ -507,5 +521,6 @@ PAL_MagicSelectionMenu(
       dwTime = SDL_GetTicks() + FRAME_TIME;
    }
 
+   g_fMagicMenuOpen = 0;
    return 0; // should not really reach here
 }
