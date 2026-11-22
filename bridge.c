@@ -504,9 +504,15 @@ _bridge_state(
       {
          if (gpGlobals->rgInventory[i].wItem == 0)
             continue;
-         APP("%s[%d,%d]", first ? "" : ",",
+         // USER「为啥决策会去拿一个没有的道具 / 一定要拿实时的信息」:
+         // nAmountInUse 是本回合已锁定要用的数量；itemmenu.c:150/288
+         // 用 nAmount <= nAmountInUse 判「不可选」。旧 dump 只给
+         // nAmount，Java 看到 x1 就以为还能用，于是反复确认一个
+         // 引擎已判不可选的格子。第三个字段让决策用引擎实时真值。
+         APP("%s[%d,%d,%d]", first ? "" : ",",
              (int)gpGlobals->rgInventory[i].wItem,
-             (int)gpGlobals->rgInventory[i].nAmount);
+             (int)gpGlobals->rgInventory[i].nAmount,
+             (int)gpGlobals->rgInventory[i].nAmountInUse);
          first = 0;
       }
    }
