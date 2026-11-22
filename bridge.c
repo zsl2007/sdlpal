@@ -166,6 +166,15 @@ _bridge_clock_domain_reset(
    // bridge.c #undef'd SDL_GetTicks above, so this is the real clock.
    g_dwTicks = SDL_GetTicks();
    PAL_ResetKeyTimings();
+   // USER「farm 与战斗策略不生效」：PAL_BridgeItemMenu(0) is only
+   // called when the item-select menu returns normally. If a load /
+   // detach interrupts it, g_fItemMenu stays latched at 1 forever,
+   // so relaxWalk() and the BFS wait loop keep treating the world
+   // as a modal item menu and never issue direction keys. Real run:
+   // itm=true for 17064 batches at s6 (1840,1896) while the live
+   // engine had already left the menu. Clear it at every
+   // attach/detach boundary, same as the key debounce table.
+   g_fItemMenu = 0;
 }
 
 static INT
