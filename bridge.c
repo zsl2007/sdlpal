@@ -595,9 +595,40 @@ _bridge_state(
       {
          APP("%s%d", i ? "," : "", (int)PAL_MagicMenuSpell(i));
       }
-      APP("],\"mcur\":%d,\"mnum\":%d,\"mobj\":%d}",
+      APP("],\"mcur\":%d,\"mnum\":%d,\"mobj\":%d",
           PAL_MagicMenuCursor(), PAL_MagicMenuCount(),
           (int)PAL_MagicMenuSpell(PAL_MagicMenuCursor()));
+
+      // USER「感觉信息不够」：mspells 是【当前打开的法术菜单】内容
+      // (magicmenu.c rgMagicItem)，不是【当前决策角色已学的法术】。
+      // CLASSIC 全员先决策，plr 换人但菜单未重开时 rgMagicItem 仍是
+      // 上一角色的表 —— 真局给灵儿选了逍遥专属气疗术 296，打开
+      // 菜单找不到只能 menu 取消，整轮白费。
+      // pspells 直接读 PlayerRoles.rgwMagic[][role]，按
+      // battle.UI.wCurPlayerIndex 取当前决策角色，是与菜单无关的
+      // 引擎真值。Java 候选生成优先用 pspells。
+      {
+         int plrIdx = (int)g_Battle.UI.wCurPlayerIndex;
+         int firstSpell = 1;
+         APP(",\"pspells\":[");
+         if (plrIdx >= 0 && plrIdx <= gpGlobals->wMaxPartyMemberIndex)
+         {
+            WORD prole = gpGlobals->rgParty[plrIdx].wPlayerRole;
+            for (i = 0; i < MAX_PLAYER_MAGICS; i++)
+            {
+               WORD w = gpGlobals->g.PlayerRoles.rgwMagic[i][prole];
+               if (w == 0) continue;
+               APP("%s%d", firstSpell ? "" : ",", (int)w);
+               firstSpell = 0;
+            }
+            APP("],\"psrole\":%d", (int)prole);
+         }
+         else
+         {
+            APP("],\"psrole\":-1");
+         }
+      }
+      APP("}");
    }
 
    // WORLD-phase magic menu (PAL_InGameMagicMenu / play.c:607, opened
