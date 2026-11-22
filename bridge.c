@@ -837,6 +837,20 @@ _bridge_parse(
          // that is keeping the main game loop from consuming the
          // reload flags. One-shot: only the loop that sees it breaks.
          g_fBridgeRecovery = 1;
+         // USER「持续迭代目标通关」: a pre-battle script can contain
+         // dozens of dialog lines, each with its OWN WaitForKey loop.
+         // A one-shot flag frees only the first one, so the engine
+         // never returns to the main loop and PAL_LoadResources()
+         // never consumes the reload flags (real run: 16 reload
+         // batches, still inbattle=true, result=1001, frozen frame).
+         // {"load":N,"abort":1} explicitly ends the battle so
+         // PAL_BattleMain()'s "BattleResult != OnGoing" check breaks,
+         // control returns to game.c, and the load takes effect.
+         // Recovery-only: never used by normal play / plain load.
+         if (_json_int(psz, "abort", 0))
+         {
+            g_Battle.BattleResult = kBattleResultTerminated;
+         }
       }
    }
 
