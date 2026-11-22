@@ -827,7 +827,7 @@ _bridge_parse(
    {
       int iSave = _json_int(psz, "save", 0);
       int iLoad = _json_int(psz, "load", 0);
-      if (iSave > 0 && iSave < 256 && gpGlobals != NULL)
+      if (iSave > 0 && iSave < 1000 && gpGlobals != NULL)
       {
          // A normal player can ONLY save from the system menu, which is
          // reachable exclusively at the tail of PAL_StartFrame(). Refuse
@@ -847,7 +847,7 @@ _bridge_parse(
                "[BRIDGE] save slot %d REFUSED (not in a saveable state)\n",
                iSave);
       }
-      if (iLoad > 0 && iLoad < 256 && gpGlobals != NULL)
+      if (iLoad > 0 && iLoad < 1000 && gpGlobals != NULL)
       {
          PAL_ReloadInNextTick(iLoad);
          // Release EVERY synchronous wait loop in this pre-battle
