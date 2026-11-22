@@ -590,6 +590,22 @@ _bridge_state(
           (int)PAL_MagicMenuSpell(PAL_MagicMenuCursor()));
    }
 
+   // WORLD-phase magic menu (PAL_InGameMagicMenu / play.c:607, opened
+   // with kKeyForce). magicmenu.c keeps its cursor in a static, so the
+   // same truth is available outside battle. Previously mcur/mnum/mobj
+   // were dumped ONLY inside the fInBattle block, leaving the agent
+   // blind while using healing spells for post-battle supply in the
+   // overworld. Duplicate as a top-level "magic" object instead of
+   // moving the battle fields (keeps battle JSON schema unchanged).
+   APP(",\"magic\":{\"mcur\":%d,\"mnum\":%d,\"mobj\":%d,\"mspells\":[",
+       PAL_MagicMenuCursor(), PAL_MagicMenuCount(),
+       (int)PAL_MagicMenuSpell(PAL_MagicMenuCursor()));
+   for (i = 0; i < PAL_MagicMenuCount(); i++)
+   {
+      APP("%s%d", i ? "," : "", (int)PAL_MagicMenuSpell(i));
+   }
+   APP("]}");
+
    APP("}");
 #undef APP
    return used;
