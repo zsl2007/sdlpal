@@ -1871,11 +1871,17 @@ PAL_BridgeBootSlot(
    VOID
 )
 {
-   // USER 11:11 定稿：从新游戏开始玩，存档4 只是 agent 的存档位，不是
-   // 起点。GUI 常驻时不设 boot slot，游戏从标题/新局开始，由 agent
-   // 按 enter 走开场菜单进入新游戏；存档/读档走引擎 PAL_SaveGame /
-   // PAL_LoadGame（游戏流程），不后台直接写文件。
-   return g_fEnabled ? g_iBootSlot : 0;
+   // USER 11:11 定稿：不设 boot slot（默认 0）时从新游戏开始，存档位
+   // 只是 agent 的存/读档槽；显式设置 PAL_AGENT_BOOT_SLOT 时，游戏
+   // 必须直接从该存档初始化（game.c:57 / main.c:577 都读这里）。
+   //
+   // 2026-11-23 修复：旧实现返回 g_fEnabled ? g_iBootSlot : 0，而
+   // LISTEN 模式启动时 g_fEnabled=0（bridge.c:1649 "standalone until
+   // an agent attaches"），于是 gui.sh 的 PAL_AGENT_BOOT_SLOT=90 只是
+   // 打印在 flags 里、从不生效，每次都变成「新游戏 + agent 按 enter」。
+   // 用户要求「从 90 存档开始」时无法坐实起点。启动期 boot slot 与
+   // agent 是否 attach 无关，直接返回；默认 0 的旧行为完全不变。
+   return g_iBootSlot;
 }
 
 // -------------------------------------------------------------------- pump
