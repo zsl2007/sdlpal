@@ -59,6 +59,15 @@ INT             g_iAutoScriptAddr = -1;
 #define MAX_SCRIPT_ADDR_DEPTH 16
 INT             g_rgScriptAddrStack[MAX_SCRIPT_ADDR_DEPTH];
 
+// 当前正在执行的触发脚本【由哪个对象触发】（PAL_RunTriggerScript 的
+// wEventObjectID）。USER「0x0049/0x0025 的 a=0xFFFF 写的是当前触发对象，
+// 离线永远归因不到」：script.c:656-670 把 pCurrent 指向 pEvtObj，
+// 只有运行时才知道这个值。bridge.c 每帧 dump 成 "evobj"。
+// 1-based 对象号；0 / 0xFFFF = 无宿主（场景 onEnter 等）；
+// -1 = 当前没有触发脚本在执行（WORLD 常态）。
+INT             g_iCurrentEventObject = -1;
+INT             g_rgEventObjectStack[MAX_SCRIPT_ADDR_DEPTH];
+
 static BOOL
 PAL_NPCWalkTo(
    WORD           wEventObjectID,
@@ -3207,8 +3216,10 @@ PAL_RunTriggerScript(
       int d = g_nScriptDepth;
       if (d >= 0 && d < MAX_SCRIPT_ADDR_DEPTH) {
          g_rgScriptAddrStack[d] = (INT)wScriptEntry;
+         g_rgEventObjectStack[d] = (INT)wEventObjectID;
       }
    }
+   g_iCurrentEventObject = (INT)wEventObjectID;
    wNextScriptEntry = wScriptEntry;
    fEnded = FALSE;
    g_fUpdatedInBattle = FALSE;
@@ -3536,8 +3547,10 @@ PAL_RunTriggerScript(
    // 退出内层时恢复外层的当前指令地址；最外层结束才清零。
    if (g_nScriptDepth > 0 && g_nScriptDepth < MAX_SCRIPT_ADDR_DEPTH) {
       g_iCurrentScriptAddr = g_rgScriptAddrStack[g_nScriptDepth];
+      g_iCurrentEventObject = g_rgEventObjectStack[g_nScriptDepth];
    } else if (g_nScriptDepth <= 0) {
       g_iCurrentScriptAddr = -1;
+      g_iCurrentEventObject = -1;
    }
    return wNextScriptEntry;
 }

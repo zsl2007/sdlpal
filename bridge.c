@@ -135,6 +135,8 @@ extern INT            g_nScriptDepth;
 extern INT            g_iCurrentScriptAddr;
 // script.c: wAutoScript（楼梯/自动搬运）每帧执行的指令地址，-1 = 无
 extern INT            g_iAutoScriptAddr;
+// script.c: 当前触发脚本由哪个对象触发（1-based；0/0xFFFF 无宿主；-1 无脚本）
+extern INT            g_iCurrentEventObject;
 
 // One-shot "a recovery load was requested while a synchronous script
 // was waiting for a key". See palcommon.h for the full rationale.
@@ -438,9 +440,10 @@ _bridge_state(
    // will see when it decides whether a {"save":N} is legitimate.
    g_fSaveAllowed = _bridge_save_allowed();
    APP(",\"saveok\":%d,\"saved\":%d,\"scriptdepth\":%d,"
-       "\"scriptat\":%d,\"autoat\":%d",
+       "\"scriptat\":%d,\"autoat\":%d,\"evobj\":%d",
        g_fSaveAllowed, g_nSaveCount, g_nScriptDepth,
-       (int)g_iCurrentScriptAddr, (int)g_iAutoScriptAddr);
+       (int)g_iCurrentScriptAddr, (int)g_iAutoScriptAddr,
+       (int)g_iCurrentEventObject);
    g_nWorldFrames = 0;
    APP(",\"said\":[");
    for (i = 0; i < g_nSaid; i++)
