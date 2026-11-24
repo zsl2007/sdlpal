@@ -444,6 +444,39 @@ _bridge_state(
        g_fSaveAllowed, g_nSaveCount, g_nScriptDepth,
        (int)g_iCurrentScriptAddr, (int)g_iAutoScriptAddr,
        (int)g_iCurrentEventObject);
+   //
+   // USER 12:24 step 4: WORLD-state truth the causal chain needs.
+   //   collect : gpGlobals->wCollectValue (0x0033/0x0034 收妖累积值)
+   //   learned : rgwMagic[slot][role] -> per-role learned spell ids.
+   //             The old "magic.mspells" only exists while the menu is open.
+   //   onenter : rgScene[].wScriptOnEnter at THIS frame. 0x006D installs it
+   //             mid-story, so the attach-time full dump goes stale. Keeping
+   //             these in the state dump avoids a new dump command and leaves
+   //             DumpBuilder.parseObjectOverlay() untouched.
+   //
+   APP(",\"collect\":%d", (int)gpGlobals->wCollectValue);
+   APP(",\"learned\":[");
+   for (j = 0; j < MAX_PLAYER_ROLES; j++)
+   {
+      int first = 1;
+      APP("%s[", j ? "," : "");
+      for (i = 0; i < MAX_PLAYER_MAGICS; i++)
+      {
+         WORD w = gpGlobals->g.PlayerRoles.rgwMagic[i][j];
+         if (w != 0)
+         {
+            APP("%s%d", first ? "" : ",", (int)w);
+            first = 0;
+         }
+      }
+      APP("]");
+   }
+   APP("]");
+   APP(",\"onenter\":[");
+   for (i = 0; i < MAX_SCENES; i++)
+      APP("%s%d", i ? "," : "",
+          (int)gpGlobals->g.rgScene[i].wScriptOnEnter);
+   APP("]");
    g_nWorldFrames = 0;
    APP(",\"said\":[");
    for (i = 0; i < g_nSaid; i++)
