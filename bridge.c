@@ -131,12 +131,6 @@ static INT            g_nSaveCount = 0;
 
 // Maintained by script.c around every PAL_RunTriggerScript() call.
 extern INT            g_nScriptDepth;
-// script.c: 当前正在执行的脚本指令地址（SSS.MKF 条目下标），-1 = 无脚本
-extern INT            g_iCurrentScriptAddr;
-// script.c: wAutoScript（楼梯/自动搬运）每帧执行的指令地址，-1 = 无
-extern INT            g_iAutoScriptAddr;
-// script.c: 当前触发脚本由哪个对象触发（1-based；0/0xFFFF 无宿主；-1 无脚本）
-extern INT            g_iCurrentEventObject;
 
 // One-shot "a recovery load was requested while a synchronous script
 // was waiting for a key". See palcommon.h for the full rationale.
@@ -439,44 +433,8 @@ _bridge_state(
    // Latched BEFORE the counter is cleared: this is the state the agent
    // will see when it decides whether a {"save":N} is legitimate.
    g_fSaveAllowed = _bridge_save_allowed();
-   APP(",\"saveok\":%d,\"saved\":%d,\"scriptdepth\":%d,"
-       "\"scriptat\":%d,\"autoat\":%d,\"evobj\":%d",
-       g_fSaveAllowed, g_nSaveCount, g_nScriptDepth,
-       (int)g_iCurrentScriptAddr, (int)g_iAutoScriptAddr,
-       (int)g_iCurrentEventObject);
-   //
-   // USER 12:24 step 4: WORLD-state truth the causal chain needs.
-   //   collect : gpGlobals->wCollectValue (0x0033/0x0034 收妖累积值)
-   //   learned : rgwMagic[slot][role] -> per-role learned spell ids.
-   //             The old "magic.mspells" only exists while the menu is open.
-   //   onenter : rgScene[].wScriptOnEnter at THIS frame. 0x006D installs it
-   //             mid-story, so the attach-time full dump goes stale. Keeping
-   //             these in the state dump avoids a new dump command and leaves
-   //             DumpBuilder.parseObjectOverlay() untouched.
-   //
-   APP(",\"collect\":%d", (int)gpGlobals->wCollectValue);
-   APP(",\"learned\":[");
-   for (j = 0; j < MAX_PLAYER_ROLES; j++)
-   {
-      int first = 1;
-      APP("%s[", j ? "," : "");
-      for (i = 0; i < MAX_PLAYER_MAGICS; i++)
-      {
-         WORD w = gpGlobals->g.PlayerRoles.rgwMagic[i][j];
-         if (w != 0)
-         {
-            APP("%s%d", first ? "" : ",", (int)w);
-            first = 0;
-         }
-      }
-      APP("]");
-   }
-   APP("]");
-   APP(",\"onenter\":[");
-   for (i = 0; i < MAX_SCENES; i++)
-      APP("%s%d", i ? "," : "",
-          (int)gpGlobals->g.rgScene[i].wScriptOnEnter);
-   APP("]");
+   APP(",\"saveok\":%d,\"saved\":%d,\"scriptdepth\":%d",
+       g_fSaveAllowed, g_nSaveCount, g_nScriptDepth);
    g_nWorldFrames = 0;
    APP(",\"said\":[");
    for (i = 0; i < g_nSaid; i++)

@@ -38,36 +38,6 @@ static int      g_iCurEquipPart = -1;
 // nesting depth so the bridge can refuse saves while it is non-zero.
 INT             g_nScriptDepth = 0;
 
-// 当前正在执行的脚本【指令地址】（SSS.MKF 条目下标）。
-// USER「怎么知道游戏中正在执行什么脚本」：解释器主循环里的
-// wScriptEntry 本来就是这个真值，只是没有导出，agent 只能靠
-// scene / 对象 trigger 猜。这里在每条指令执行前写入，脚本块
-// 退出（depth 归零）时清零；bridge.c 每帧 dump 成 "scriptat"。
-// -1 = 当前没有脚本在执行（WORLD 常态）。
-INT             g_iCurrentScriptAddr = -1;
-
-// 自动脚本（wAutoScript，每帧解释一条：0x0024 安装的楼梯/搬运/
-// 自动位移）当前正在执行的指令地址。-1 = 没有自动脚本在跑。
-// USER「上下楼梯之前靠等 1 秒落定，现在按脚本执行精确判断」：
-// 楼梯走 PAL_RunAutoScript 而非 PAL_RunTriggerScript，不导出这个
-// 值 agent 就只能靠静止批数猜脚本是否播完。
-INT             g_iAutoScriptAddr = -1;
-
-// 嵌套脚本（战斗内敌方脚本 / 0x0002 调用）会递归进
-// PAL_RunTriggerScript。每层记住自己的指令地址，退出内层时
-// 恢复外层，避免 agent 看到「战斗期间突然变成敌人脚本地址」。
-#define MAX_SCRIPT_ADDR_DEPTH 16
-INT             g_rgScriptAddrStack[MAX_SCRIPT_ADDR_DEPTH];
-
-// 当前正在执行的触发脚本【由哪个对象触发】（PAL_RunTriggerScript 的
-// wEventObjectID）。USER「0x0049/0x0025 的 a=0xFFFF 写的是当前触发对象，
-// 离线永远归因不到」：script.c:656-670 把 pCurrent 指向 pEvtObj，
-// 只有运行时才知道这个值。bridge.c 每帧 dump 成 "evobj"。
-// 1-based 对象号；0 / 0xFFFF = 无宿主（场景 onEnter 等）；
-// -1 = 当前没有触发脚本在执行（WORLD 常态）。
-INT             g_iCurrentEventObject = -1;
-INT             g_rgEventObjectStack[MAX_SCRIPT_ADDR_DEPTH];
-
 static BOOL
 PAL_NPCWalkTo(
    WORD           wEventObjectID,
@@ -3212,14 +3182,6 @@ PAL_RunTriggerScript(
    extern BOOL       g_fUpdatedInBattle; // HACKHACK
 
    g_nScriptDepth++;
-   {
-      int d = g_nScriptDepth;
-      if (d >= 0 && d < MAX_SCRIPT_ADDR_DEPTH) {
-         g_rgScriptAddrStack[d] = (INT)wScriptEntry;
-         g_rgEventObjectStack[d] = (INT)wEventObjectID;
-      }
-   }
-   g_iCurrentEventObject = (INT)wEventObjectID;
    wNextScriptEntry = wScriptEntry;
    fEnded = FALSE;
    g_fUpdatedInBattle = FALSE;
@@ -3245,15 +3207,6 @@ PAL_RunTriggerScript(
 
    while (wScriptEntry != 0 && !fEnded)
    {
-      // 导出当前指令地址：对白 0xFFFF 会在此处同步等待按键，
-      // bridge 在这期间发 state，agent 就能看到「停在第几条」。
-      g_iCurrentScriptAddr = (INT)wScriptEntry;
-      {
-         int d = g_nScriptDepth;
-         if (d >= 0 && d < MAX_SCRIPT_ADDR_DEPTH) {
-            g_rgScriptAddrStack[d] = (INT)wScriptEntry;
-         }
-      }
       pScript = &(gpGlobals->g.lprgScriptEntry[wScriptEntry]);
 
       UTIL_LogOutput(LOGLEVEL_DEBUG, "[SCRIPT] %.4x: %.4x %.4x %.4x %.4x\n", wScriptEntry,
@@ -3544,14 +3497,6 @@ PAL_RunTriggerScript(
    g_iCurEquipPart = -1;
 
    g_nScriptDepth--;
-   // 退出内层时恢复外层的当前指令地址；最外层结束才清零。
-   if (g_nScriptDepth > 0 && g_nScriptDepth < MAX_SCRIPT_ADDR_DEPTH) {
-      g_iCurrentScriptAddr = g_rgScriptAddrStack[g_nScriptDepth];
-      g_iCurrentEventObject = g_rgEventObjectStack[g_nScriptDepth];
-   } else if (g_nScriptDepth <= 0) {
-      g_iCurrentScriptAddr = -1;
-      g_iCurrentEventObject = -1;
-   }
    return wNextScriptEntry;
 }
 
@@ -3581,9 +3526,6 @@ PAL_RunAutoScript(
    LPEVENTOBJECT          pEvtObj;
 
 begin:
-   // 每帧一条指令：导出本帧真正执行的地址。0x0000 STOP 时清零，
-   // 让 agent 能用「脚本地址 -1」精确判定自动位移已经播完。
-   g_iAutoScriptAddr = (INT)wScriptEntry;
    pScript = &(gpGlobals->g.lprgScriptEntry[wScriptEntry]);
    pEvtObj = &(gpGlobals->g.lprgEventObject[wEventObjectID - 1]);
 
@@ -3601,7 +3543,6 @@ begin:
       //
       // Stop running
       //
-      g_iAutoScriptAddr = -1;
       break;
 
    case 0x0001:
