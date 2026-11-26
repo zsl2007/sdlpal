@@ -591,7 +591,7 @@ PAL_SystemMenu(
       if (iSlot != MENUITEM_VALUE_CANCELLED)
       {
          WORD wSavedTimes = 0;
-         gpGlobals->bCurrentSaveSlot = (BYTE)iSlot;
+         gpGlobals->bCurrentSaveSlot = iSlot;
 
          for (i = 1; i <= 5; i++)
          {

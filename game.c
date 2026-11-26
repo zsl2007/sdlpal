@@ -54,9 +54,11 @@ PAL_GameMain(
    // save slot instead; PAL_ReloadInNextTick() then loads it on the
    // first frame of the ordinary main loop.
    {
+      // USER「等下就从 278 开始打」：启动槽与 bridge save/load 同口径
+      // 放宽到 < 1000，否则 PAL_AGENT_BOOT_SLOT=278 会被判成新游戏。
       INT iBoot = PAL_BridgeBootSlot();
-      gpGlobals->bCurrentSaveSlot = (BYTE)
-         ((iBoot > 0 && iBoot < 256) ? iBoot : PAL_OpeningMenu());
+      gpGlobals->bCurrentSaveSlot =
+         ((iBoot > 0 && iBoot < 1000) ? iBoot : PAL_OpeningMenu());
    }
    gpGlobals->fInMainGame = TRUE;
 

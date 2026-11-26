@@ -507,7 +507,12 @@ typedef struct tagGLOBALVARS
    int              iCurSystemMenuItem;  // current system menu item number
    int              iCurInvMenuItem;     // current inventory menu item number
    int              iCurPlayingRNG;      // current playing RNG animation
-   BYTE             bCurrentSaveSlot;    // current save slot (1-5)
+   // USER「允许改引擎的存档范围」：agent 槽分段 100..299（checkpoint
+   // 100..199 / boss 战前 200..299）。BYTE 会把 278 截断成 22，
+   // 0x004E 战败自动读档找不到 22.rpg -> PAL_LoadDefaultGame()
+   // -> 死亡后重头开局。GLOBALS 是运行时结构，不入存档文件，
+   // 改类型不破坏 .rpg 格式（写盘用独立 SAVEDGAME 结构）。
+   INT              bCurrentSaveSlot;    // current save slot (0..999)
    BOOL             fInMainGame;         // TRUE if in main game
    BOOL             fEnteringScene;      // TRUE if entering a new scene
    BOOL             fNeedToFadeIn;       // TRUE if need to fade in when drawing scene

@@ -904,6 +904,13 @@ _bridge_parse(
          if (g_fSaveAllowed)
          {
             PAL_SaveGame(iSave, 1);
+            // USER「战败了…从头开始打了」：引擎战败分支 0x004E 会
+            // PAL_ReloadInNextTick(gpGlobals->bCurrentSaveSlot) 自动
+            // 读回【当前槽】；旧实现这里只写 N.rpg、从不更新当前槽，
+            // 于是读到启动槽 0 -> PAL_LoadDefaultGame() -> 重头开局。
+            // 与真人系统菜单存档 (uigame.c 设 bCurrentSaveSlot) 对齐。
+            // 注意：不调用 PAL_ReloadInNextTick，只同步槽号，不打断剧情。
+            gpGlobals->bCurrentSaveSlot = iSave;
             g_nSaveCount++;
          }
          else
@@ -1211,6 +1218,45 @@ _bridge_dump_objs(
 }
 
 //
+// Per-round scene install snapshot (read-only).
+//
+// 0x006D (script.c:2097) rewrites rgScene[].wScriptOnEnter at runtime,
+// and play.c:64 writes the return value of PAL_RunTriggerScript back into
+// the same field. The attach-time full dump is therefore stale. Emit the
+// current onEnter/onTeleport pair for each scene so the agent can enumerate
+// "scripts installed right now" without guessing story progress.
+// Format: {"sceneInstall":[[onEnter,onTeleport],...]} indexed by scene-1.
+//
+static void
+_bridge_dump_scene_install(
+   VOID
+)
+{
+   int  i;
+   char sz[128];
+   char line[BRIDGE_BUFSZ];
+
+   int n = snprintf(line, sizeof(line), "{\"sceneInstall\":[");
+   for (i = 0; i < MAX_SCENES; i++)
+   {
+      int m = snprintf(sz, sizeof(sz), "%s[%d,%d]",
+         i ? "," : "",
+         (int)gpGlobals->g.rgScene[i].wScriptOnEnter,
+         (int)gpGlobals->g.rgScene[i].wScriptOnTeleport);
+      if (n + m + 4 > (int)sizeof(line))
+      {
+         break;
+      }
+      memcpy(line + n, sz, m);
+      n += m;
+   }
+   line[n++] = ']';
+   line[n++] = '}';
+   line[n] = '\0';
+   _bridge_dump_line(line);
+}
+
+//
 // Lightweight dump: header + live objs + eod only. No scenes/script/maps
 // resend. The agent calls this every round to refresh its BFS object layer
 // so all scenes are judged from ONE fresh snapshot (no static/realtime split).
@@ -1223,6 +1269,7 @@ _bridge_dump_objs_only(
    g_nDumpLen = 0;
    _bridge_dump_line("{\"dump\":\"objs\"}");
    _bridge_dump_objs();
+   _bridge_dump_scene_install();
    _bridge_dump_line("{\"eod\":1}");
    _bridge_dump_flush();
 }

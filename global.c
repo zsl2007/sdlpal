@@ -904,7 +904,7 @@ PAL_ReloadInNextTick(
 
 --*/
 {
-    gpGlobals->bCurrentSaveSlot = (BYTE)iSaveSlot;
+    gpGlobals->bCurrentSaveSlot = iSaveSlot;
     PAL_SetLoadFlags(kLoadGlobalData | kLoadScene | kLoadPlayerSprite);
     gpGlobals->fEnteringScene = TRUE;
     gpGlobals->fNeedToFadeIn = TRUE;
@@ -932,7 +932,7 @@ PAL_InitGameData(
 {
    PAL_InitGlobalGameData();
 
-   gpGlobals->bCurrentSaveSlot = (BYTE)iSaveSlot;
+   gpGlobals->bCurrentSaveSlot = iSaveSlot;
 
    //
    // try loading from the saved game file.
