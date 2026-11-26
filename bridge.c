@@ -468,8 +468,13 @@ _bridge_state(
          // ceiling for every heal/MP potion, so the agent can compute
          // the whole supply plan offline instead of guessing a floor
          // such as lv*15 or probing with failed item uses.
+         // USER 2026-11-26: export the three permanent combat stats so the
+         // agent can enforce the 999 cap before feeding 0x0019 growth items
+         // (script.c:845 has NO clamp; stat_growth_policy.json cap_guard).
+         // rows 17/18/19 of PLAYERROLES = Attack/Magic/Defense.
          APP("%s{\"r\":%d,\"hp\":%d,\"mp\":%d,\"mh\":%d,\"mm\":%d,"
-             "\"lv\":%d,\"st\":%d,\"eq\":[",
+             "\"lv\":%d,\"st\":%d,"
+             "\"atk\":%d,\"mag\":%d,\"def\":%d,\"eq\":[",
              i ? "," : "",
              r,
              (int)gpGlobals->g.PlayerRoles.rgwHP[r],
@@ -477,7 +482,10 @@ _bridge_state(
              (int)gpGlobals->g.PlayerRoles.rgwMaxHP[r],
              (int)gpGlobals->g.PlayerRoles.rgwMaxMP[r],
              (int)gpGlobals->g.PlayerRoles.rgwLevel[r],
-             mask);
+             mask,
+             (int)gpGlobals->g.PlayerRoles.rgwAttackStrength[r],
+             (int)gpGlobals->g.PlayerRoles.rgwMagicStrength[r],
+             (int)gpGlobals->g.PlayerRoles.rgwDefense[r]);
          // what each of the 6 body slots holds (0 = bare); a plot that
          // needs a worn item can only test the bag, so the agent has to
          // see this to know what to take off
