@@ -23,6 +23,37 @@
 
 LPSPRITE      gpSpriteUI = NULL;
 
+//
+// USER 2026-11-27「引擎肯定知道光标在哪，否则他怎么渲染呢」：
+// PAL_ReadMenu 的当前选中项本来就是渲染 MENUITEM_COLOR_SELECTED 高亮用的
+// wCurrentItem，但它原是函数内局部变量，bridge 读不到，Java 只能盲按
+// down/search。这里照 uigame.c:1297 (sSelectedPlayer) 的先例，把它镜像到
+// 文件级并暴露；cnum=0 / ccur=-1 表示当前没有通用菜单。
+// PAL_ReadMenu 是所有菜单（YES/NO、Triple、Switch、商店、主菜单…）的
+// 公共实现，所以这一处导出覆盖全部类型，不需要给每个调用点单独加埋点。
+//
+static SHORT sMenuCursor = -1;
+static SHORT sMenuCount = 0;
+static SHORT sMenuDefault = 0;
+
+int
+PAL_MenuCursor(VOID)
+{
+   return (int)sMenuCursor;
+}
+
+int
+PAL_MenuCount(VOID)
+{
+   return (int)sMenuCount;
+}
+
+int
+PAL_MenuDefault(VOID)
+{
+   return (int)sMenuDefault;
+}
+
 static LPBOX
 PAL_CreateBoxInternal(
 	const SDL_Rect *rect
@@ -432,6 +463,12 @@ PAL_ReadMenu(
    int               i;
    WORD              wCurrentItem    = (wDefaultItem < nMenuItem) ? wDefaultItem : 0;
 
+   // 导出到 bridge：菜单打开时记录项数 / 默认项 / 当前光标。
+   // wDefaultItem 可能越界，cdef 记录的是实际生效的初始光标。
+   sMenuCount = (SHORT)nMenuItem;
+   sMenuDefault = (SHORT)wCurrentItem;
+   sMenuCursor = (SHORT)wCurrentItem;
+
    //
    // Fix issue #166
    //
@@ -470,6 +507,9 @@ PAL_ReadMenu(
 
    while (TRUE)
    {
+      // 每帧同步一次即可覆盖所有 wCurrentItem++/--/=0/=nMenuItem-1 分支，
+      // 不必在每个方向键分支里都补赋值。
+      sMenuCursor = (SHORT)wCurrentItem;
       PAL_ClearKeyState();
 
       //
@@ -623,6 +663,9 @@ PAL_ReadMenu(
             PAL_DrawText(PAL_GetWord(rgMenuItem[wCurrentItem].wNumWord),
                rgMenuItem[wCurrentItem].pos, MENUITEM_COLOR_CONFIRMED, FALSE, TRUE, FALSE);
 
+            // 菜单关闭：清空导出，避免下一帧被误判成仍有菜单。
+            sMenuCount = 0;
+            sMenuCursor = -1;
             return rgMenuItem[wCurrentItem].wValue;
          }
       }
@@ -633,6 +676,9 @@ PAL_ReadMenu(
       SDL_Delay(50);
    }
 
+   // 取消退出同样清空导出。
+   sMenuCount = 0;
+   sMenuCursor = -1;
    return MENUITEM_VALUE_CANCELLED;
 }
 

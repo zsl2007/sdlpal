@@ -38,6 +38,11 @@ extern int  PAL_MagicMenuIsOpen(VOID);
 extern int  PAL_ItemUseMenuCursor(VOID);
 extern WORD PAL_ItemUseMenuRole(VOID);
 extern int  PAL_ItemUseMenuActive(VOID);
+// ui.c: PAL_ReadMenu 的通用菜单光标（YES/NO / Triple / Switch / 商店…）。
+// cnum>0 表示菜单真的开着，比只覆盖 PAL_ConfirmMenu 的 cfm 更完整。
+extern int  PAL_MenuCursor(VOID);
+extern int  PAL_MenuCount(VOID);
+extern int  PAL_MenuDefault(VOID);
 
 //
 // common.h aliases SDL_GetTicks to the bridge's virtual clock; the bridge
@@ -434,6 +439,10 @@ _bridge_state(
    // Anything modal -- menu, shop, battle UI, cutscene -- leaves it 0, which
    // is the only honest way to tell "stuck in a menu" from "standing still".
    APP(",\"ctl\":%d,\"cfm\":%d", g_nWorldFrames > 0 ? 1 : 0, g_fConfirm);
+   // 通用菜单真值：ccur=当前选中下标(-1=无菜单)、cnum=项数、cdef=初始光标。
+   // Java 侧可按 cnum>0 识别任何 PAL_ReadMenu 菜单并按键到目标项。
+   APP(",\"ccur\":%d,\"cnum\":%d,\"cdef\":%d",
+       PAL_MenuCursor(), PAL_MenuCount(), PAL_MenuDefault());
    // Latched BEFORE the counter is cleared: this is the state the agent
    // will see when it decides whether a {"save":N} is legitimate.
    g_fSaveAllowed = _bridge_save_allowed();
